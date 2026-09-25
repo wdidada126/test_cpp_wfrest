@@ -60,11 +60,3 @@ jobs:
           echo
           kill $SERVER_PID || true
           wait $SERVER_PID 2>/dev/null || true
-
-      - name: Upload build artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: wfrest_server-${{ matrix.os }}-cpp${{ matrix.std }}
-          path: build/wfrest_server
-          if-no-files-found: warn
