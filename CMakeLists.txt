@@ -117,6 +117,7 @@ set(ECSHOP_SOURCES
     src/http/ApiError.cpp
     src/http/AuthUtil.cpp
     src/http/AuthRoutes.cpp
+    src/http/MeRoutes.cpp
     src/http/HttpUtil.cpp
     src/http/HealthRoutes.cpp
     src/http/CatalogRoutes.cpp

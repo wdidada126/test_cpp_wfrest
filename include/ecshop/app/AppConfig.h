@@ -22,7 +22,7 @@ struct AppConfig
     std::string mysql_database = "ecshop_cpp";
 
     // ECSHOP_SITE_BASE_URL: absolute URL root for sitemap/feed links
-    std::string site_base_url = "http://localhost:8080";
+    std::string site_base_url = "http://localhost:18080";
 
     static AppConfig fromEnv();
 };
