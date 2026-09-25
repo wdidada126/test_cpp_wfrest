@@ -1,5 +1,6 @@
 #include "ecshop/http/AdminRoutes.h"
 #include "ecshop/http/HttpUtil.h"
+#include "ecshop/infrastructure/SqlAdminCategoryRepository.h"
 #include "ecshop/infrastructure/SqlAdminGoodsRepository.h"
 #include "ecshop/infrastructure/SqlAdminOrderRepository.h"
 #include "ecshop/infrastructure/SqlAdminRepository.h"
@@ -673,6 +674,233 @@ void registerAdminRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
             api::send(req, resp, ApiError::notFound("order not found"));
             return;
         }
+    });
+
+    auto categories = std::make_shared<infra::SqlAdminCategoryRepository>(db);
+
+    auto categoryToJson = [](const domain::CategorySummary &item) {
+        wfrest::Json::Object obj;
+        obj.push_back("cat_id", item.cat_id);
+        obj.push_back("parent_id", item.parent_id);
+        obj.push_back("name", item.name);
+        obj.push_back("goods_count", item.goods_count);
+        return obj;
+    };
+
+    // GET /api/v1/admin/categories — all categories incl. hidden
+    sv.GET("/api/v1/admin/categories",
+           [admins, categories, categoryToJson](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::vector<domain::CategorySummary> all = categories->list();
+
+        wfrest::Json::Array items;
+        for (const domain::CategorySummary &category : all)
+            items.push_back(categoryToJson(category));
+
+        api::PageQuery page;
+        api::send(req, resp,
+                  ApiResponse::ok(api::listBody(page, static_cast<int64_t>(all.size()), items)));
+    });
+
+    // POST /api/v1/admin/categories — create; 201
+    sv.POST("/api/v1/admin/categories",
+            [admins, categories, categoryToJson, db](const wfrest::HttpReq *req,
+                                                     wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string name;
+        if (!api::readStr(body, "name", name) || name.empty() || name.size() > 120)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "name");
+            api::send(req, resp, ApiError::validationError("name must be 1-120 bytes", details));
+            return;
+        }
+        int64_t parent_id = 0, sort_order = 50;
+        if (body.has("parent_id") &&
+            (!api::readInt(body, "parent_id", parent_id) || parent_id < 0))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "parent_id");
+            api::send(req, resp,
+                      ApiError::validationError("parent_id must be an integer", details));
+            return;
+        }
+        if (body.has("sort_order") &&
+            (!api::readInt(body, "sort_order", sort_order) || sort_order < 0))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "sort_order");
+            api::send(req, resp,
+                      ApiError::validationError("sort_order must be an integer", details));
+            return;
+        }
+
+        int64_t cat_id = categories->create(name, parent_id, sort_order);
+        domain::CategorySummary item;
+        item.cat_id = cat_id;
+        item.parent_id = parent_id;
+        item.name = name;
+        admins->writeLog(admin->admin_id, "create_category", "cat_id=" + std::to_string(cat_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, ApiResponse::created(categoryToJson(item)));
+    });
+
+    // PATCH /api/v1/admin/categories/{id}
+    sv.PATCH("/api/v1/admin/categories/{id}",
+             [admins, categories, categoryToJson, db](const wfrest::HttpReq *req,
+                                                      wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t cat_id = 0;
+        if (!api::parsePathId(req, "id", cat_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::optional<std::string> name;
+        std::optional<int64_t> parent_id, sort_order;
+        std::optional<bool> is_show;
+
+        if (body.has("name"))
+        {
+            std::string value;
+            if (!api::readStr(body, "name", value) || value.empty() || value.size() > 120)
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "name");
+                api::send(req, resp,
+                          ApiError::validationError("name must be 1-120 bytes", details));
+                return;
+            }
+            name = value;
+        }
+        auto checkInt = [&](const char *key, std::optional<int64_t> &target) -> bool {
+            int64_t v = 0;
+            if (!body.has(key))
+                return true;
+            if (!api::readInt(body, key, v) || v < 0)
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", std::string(key));
+                api::send(req, resp,
+                          ApiError::validationError(std::string(key) + " must be an integer",
+                                                    details));
+                return false;
+            }
+            target = v;
+            return true;
+        };
+        if (!checkInt("parent_id", parent_id) || !checkInt("sort_order", sort_order))
+            return;
+
+        if (body.has("is_show"))
+        {
+            bool value = false;
+            if (!api::readBool(body, "is_show", value))
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "is_show");
+                api::send(req, resp,
+                          ApiError::validationError("is_show must be a boolean", details));
+                return;
+            }
+            is_show = value;
+        }
+
+        if (!categories->patch(cat_id, name, parent_id, sort_order, is_show))
+        {
+            api::send(req, resp, ApiError::notFound("category not found"));
+            return;
+        }
+
+        admins->writeLog(admin->admin_id, "patch_category", "cat_id=" + std::to_string(cat_id),
+                         task_of(resp)->peer_addr());
+
+        // echo back the full category list row re-fetched
+        std::vector<domain::CategorySummary> all = categories->list();
+        for (const domain::CategorySummary &category : all)
+        {
+            if (category.cat_id == cat_id)
+            {
+                api::send(req, resp, ApiResponse::ok(categoryToJson(category)));
+                return;
+            }
+        }
+        api::send(req, resp, ApiError::internalError("category patch failed"));
+    });
+
+    // DELETE /api/v1/admin/categories/{id}
+    sv.DELETE("/api/v1/admin/categories/{id}",
+              [admins, categories, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t cat_id = 0;
+        if (!api::parsePathId(req, "id", cat_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        if (!categories->remove(cat_id))
+        {
+            api::send(req, resp,
+                      ApiError::conflict("category_not_empty",
+                                         "category in use by goods or not found"));
+            return;
+        }
+
+        admins->writeLog(admin->admin_id, "delete_category", "cat_id=" + std::to_string(cat_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, ApiResponse::noContent());
     });
 }
 
