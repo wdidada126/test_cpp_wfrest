@@ -285,6 +285,51 @@ void registerAuthRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         out.push_back("status", "accepted");
         api::send(req, resp, ApiResponse::accepted(out));
     });
+
+    // POST /api/v1/password-resets/confirm — set a new password via token
+    sv.POST("/api/v1/password-resets/confirm",
+            [tokens](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        wfrest::Json body;
+        api::ApiResponse err;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string token, new_password;
+        if (!api::readStr(body, "token", token) || token.size() != 64 ||
+            token.find_first_not_of("0123456789abcdef") != std::string::npos)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "token");
+            api::send(req, resp,
+                      ApiError::validationError("token must be 64 lowercase hex chars", details));
+            return;
+        }
+        if (!api::readStr(body, "new_password", new_password) || new_password.size() < 8 ||
+            new_password.size() > 1024)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "new_password");
+            api::send(req, resp,
+                      ApiError::validationError("new_password must be 8-1024 bytes", details));
+            return;
+        }
+
+        std::string new_hash = shared::hashPassword(new_password);
+        std::optional<int64_t> user_id = tokens->consumePasswordReset(
+            shared::sha256Hex(token), new_hash, shared::nowUnix());
+        if (!user_id)
+        {
+            api::send(req, resp,
+                      ApiError::conflict("token_invalid", "token is invalid or expired"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::noContent());
+    });
 }
 
 } // namespace ecshop::http
