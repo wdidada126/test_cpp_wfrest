@@ -4,6 +4,8 @@
 
 namespace ecshop::http {
 
+using api::ApiResponse;
+
 static wfrest::Json packageToJson(const domain::Package &package)
 {
     wfrest::Json::Object obj;
