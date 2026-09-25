@@ -58,6 +58,85 @@ void registerBookingRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
         api::send(req, resp,
                   ApiResponse::ok(api::listBody(page, static_cast<int64_t>(all.size()), items)));
     });
+
+    // POST /api/v1/me/bookings — register a backorder for visible goods
+    sv.POST("/api/v1/me/bookings",
+            [users, bookings](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        domain::Booking booking;
+        if (!api::readInt(body, "goods_id", booking.goods_id) || booking.goods_id <= 0)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "goods_id");
+            api::send(req, resp,
+                      ApiError::validationError("goods_id must be a positive integer", details));
+            return;
+        }
+        if (!api::readInt(body, "goods_number", booking.quantity) || booking.quantity < 1 ||
+            booking.quantity > 999)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "goods_number");
+            api::send(req, resp,
+                      ApiError::validationError("goods_number must be between 1 and 999", details));
+            return;
+        }
+
+        struct StringField
+        {
+            const char *name;
+            std::string *target;
+            size_t max_len;
+        } fields[] = {
+            {"description", &booking.description, 255},
+            {"linkman", &booking.linkman, 60},
+            {"email", &booking.email, 120},
+            {"telephone", &booking.telephone, 32},
+        };
+        for (const StringField &field : fields)
+        {
+            if (body.has(field.name) &&
+                (!api::readStr(body, field.name, *field.target) ||
+                 field.target->size() > field.max_len))
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", std::string(field.name));
+                api::send(req, resp,
+                          ApiError::validationError(std::string(field.name) + " is too long",
+                                                    details));
+                return;
+            }
+        }
+
+        domain::BookingAddResult result = bookings->add(*user_id, booking);
+        if (result == domain::BookingAddResult::GoodsNotVisible)
+        {
+            api::send(req, resp, ApiError::notFound("goods not found"));
+            return;
+        }
+        if (result == domain::BookingAddResult::Duplicate)
+        {
+            api::send(req, resp, ApiError::conflict("booking_exists", "goods already booked"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::created(bookingToJson(booking)));
+    });
 }
 
 } // namespace ecshop::http
