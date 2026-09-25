@@ -114,6 +114,9 @@ public:
     // mysql: "YYYY-MM-DD HH:MM:SS")
     virtual std::string datetimeFromUnix(int64_t unix_seconds) const = 0;
 
+    // order_info creation time column: sqlite "created_at", mysql "add_time"
+    virtual std::string orderTimeCol() const = 0;
+
     // goods_gallery extra image columns (mysql schema only has img_url)
     virtual std::string galleryThumb(const std::string &alias) const = 0;
     virtual std::string galleryOriginal(const std::string &alias) const = 0;

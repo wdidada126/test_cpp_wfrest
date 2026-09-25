@@ -31,6 +31,7 @@ public:
     std::string toUnix(const std::string &expr) const override { return "UNIX_TIMESTAMP(" + expr + ")"; }
     std::string nowExpr() const override { return "NOW()"; }
     std::string datetimeFromUnix(int64_t unix_seconds) const override;
+    std::string orderTimeCol() const override { return "add_time"; }
     std::string galleryThumb(const std::string &alias) const override { return alias + ".img_url"; }
     std::string galleryOriginal(const std::string &alias) const override { return alias + ".img_url"; }
     const char *driverName() const override { return "mysql"; }

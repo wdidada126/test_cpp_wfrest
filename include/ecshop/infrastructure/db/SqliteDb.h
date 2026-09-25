@@ -27,6 +27,7 @@ public:
     {
         return std::to_string(unix_seconds);
     }
+    std::string orderTimeCol() const override { return "created_at"; }
     std::string galleryThumb(const std::string &alias) const override { return alias + ".thumb_url"; }
     std::string galleryOriginal(const std::string &alias) const override { return alias + ".img_original"; }
     const char *driverName() const override { return "sqlite"; }
