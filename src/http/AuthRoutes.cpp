@@ -249,6 +249,42 @@ void registerAuthRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 
         api::send(req, resp, ApiResponse::noContent());
     });
+
+    // POST /api/v1/password-resets — always 202, avoids account enumeration
+    sv.POST("/api/v1/password-resets",
+            [users, tokens](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        wfrest::Json body;
+        api::ApiResponse err;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string email;
+        if (!api::readStr(body, "email", email) || !looksLikeEmail(email))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "email");
+            api::send(req, resp, ApiError::validationError("email is required", details));
+            return;
+        }
+
+        std::optional<domain::User> user = users->findByEmail(email);
+        if (user)
+        {
+            std::string token = shared::randomTokenHex(32);
+            tokens->replacePasswordReset(user->user_id, shared::sha256Hex(token),
+                                         shared::nowUnix() + 3600);
+            tokens->queueEmail(user->user_id, email, "password_reset",
+                               "{\"token\":\"" + token + "\"}");
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("status", "accepted");
+        api::send(req, resp, ApiResponse::accepted(out));
+    });
 }
 
 } // namespace ecshop::http
