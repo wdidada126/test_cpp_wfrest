@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "ecshop/domain/NewsletterRepository.h"
 #include "ecshop/infrastructure/db/Db.h"
 

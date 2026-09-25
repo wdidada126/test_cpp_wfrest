@@ -1,5 +1,8 @@
 #pragma once
 
+#include <optional>
+#include <string>
+
 #include "ecshop/domain/Order.h"
 #include "ecshop/infrastructure/db/Db.h"
 

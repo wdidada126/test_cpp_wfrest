@@ -1,5 +1,9 @@
 #pragma once
 
+#include <memory>
+#include <optional>
+#include <vector>
+
 #include "ecshop/domain/ArticleRepository.h"
 #include "ecshop/infrastructure/db/Db.h"
 

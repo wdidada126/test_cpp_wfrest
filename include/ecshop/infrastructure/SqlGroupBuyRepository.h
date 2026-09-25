@@ -1,5 +1,8 @@
 #pragma once
 
+#include <optional>
+#include <vector>
+
 #include "ecshop/domain/GroupBuyRepository.h"
 #include "ecshop/infrastructure/db/Db.h"
 

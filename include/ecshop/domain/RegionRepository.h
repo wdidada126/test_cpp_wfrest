@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "ecshop/domain/Region.h"
 
 #include <memory>

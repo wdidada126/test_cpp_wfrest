@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "ecshop/domain/Bonus.h"
 
 #include <memory>

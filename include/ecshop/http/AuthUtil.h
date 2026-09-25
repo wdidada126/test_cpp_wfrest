@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "ecshop/domain/UserRepository.h"
 #include "ecshop/http/ApiError.h"
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include "ecshop/domain/TopicRepository.h"
 #include "ecshop/infrastructure/db/Db.h"
 

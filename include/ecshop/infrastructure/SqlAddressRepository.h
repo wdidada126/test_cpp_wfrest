@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <vector>
+
 #include "ecshop/domain/AddressRepository.h"
 #include "ecshop/infrastructure/db/Db.h"
 

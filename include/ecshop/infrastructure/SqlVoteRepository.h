@@ -1,5 +1,9 @@
 #pragma once
 
+#include <optional>
+#include <string>
+#include <vector>
+
 #include "ecshop/domain/VoteRepository.h"
 #include "ecshop/infrastructure/db/Db.h"
 

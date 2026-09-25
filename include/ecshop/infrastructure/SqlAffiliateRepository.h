@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "ecshop/domain/AffiliateRepository.h"
 #include "ecshop/infrastructure/db/Db.h"
 

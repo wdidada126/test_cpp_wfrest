@@ -1,5 +1,8 @@
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "ecshop/domain/Catalog.h"
 
 #include <memory>

@@ -1,5 +1,10 @@
 #pragma once
 
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
 #include "ecshop/domain/BonusRepository.h"
 #include "ecshop/infrastructure/db/Db.h"
 

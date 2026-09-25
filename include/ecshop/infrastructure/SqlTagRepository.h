@@ -1,5 +1,8 @@
 #pragma once
 
+#include <string>
+#include <vector>
+
 #include "ecshop/domain/Tag.h"
 #include "ecshop/infrastructure/db/Db.h"
 

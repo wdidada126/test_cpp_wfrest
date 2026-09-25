@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include "ecshop/domain/ExchangeGoodsRepository.h"
 #include "ecshop/infrastructure/db/Db.h"
 

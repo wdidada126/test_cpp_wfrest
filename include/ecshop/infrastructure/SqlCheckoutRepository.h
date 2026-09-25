@@ -1,5 +1,9 @@
 #pragma once
 
+#include <optional>
+#include <string>
+#include <vector>
+
 #include "ecshop/domain/Checkout.h"
 #include "ecshop/infrastructure/db/Db.h"
 
