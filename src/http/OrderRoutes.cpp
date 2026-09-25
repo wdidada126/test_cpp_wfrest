@@ -2,6 +2,7 @@
 #include "ecshop/http/AuthUtil.h"
 #include "ecshop/http/HttpUtil.h"
 #include "ecshop/infrastructure/SqlCheckoutRepository.h"
+#include "ecshop/infrastructure/SqlGroupBuyRepository.h"
 #include "ecshop/infrastructure/SqlOrderRepository.h"
 #include "ecshop/infrastructure/SqlUserRepository.h"
 #include "ecshop/shared/Money.h"
@@ -679,6 +680,84 @@ void registerOrderRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
             api::send(req, resp, ApiError::notFound("order not found"));
             return;
         }
+    });
+
+    auto group_buys = std::make_shared<infra::SqlGroupBuyRepository>(db);
+
+    // GET /api/v1/me/group-buys — own group buy order history
+    sv.GET("/api/v1/me/group-buys",
+           [users, group_buys](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::vector<domain::MyGroupBuy> all = group_buys->listOfUser(*user_id);
+
+        auto to_json = [](const domain::MyGroupBuy &item) {
+            wfrest::Json::Object obj;
+            obj.push_back("act_id", item.act_id);
+            obj.push_back("act_name", item.act_name);
+            obj.push_back("start_time", shared::isoUtc(item.start_time));
+            obj.push_back("end_time", shared::isoUtc(item.end_time));
+            obj.push_back("order_id", item.order_id);
+            obj.push_back("order_sn", item.order_sn);
+            obj.push_back("order_status", item.order_status);
+            obj.push_back("order_amount", item.order_amount);
+            return obj;
+        };
+
+        wfrest::Json::Array items;
+        api::PageQuery page;
+        for (const domain::MyGroupBuy &item : all)
+            items.push_back(to_json(item));
+
+        api::send(req, resp,
+                  ApiResponse::ok(api::listBody(page, static_cast<int64_t>(all.size()), items)));
+    });
+
+    // GET /api/v1/me/group-buys/{id} — one group buy activity with order snapshot
+    sv.GET("/api/v1/me/group-buys/{id}",
+           [users, group_buys](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t act_id = 0;
+        if (!api::parsePathId(req, "id", act_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        std::optional<domain::MyGroupBuy> item = group_buys->findOfUser(*user_id, act_id);
+        if (!item)
+        {
+            api::send(req, resp, ApiError::notFound("group buy not found"));
+            return;
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("act_id", item->act_id);
+        out.push_back("act_name", item->act_name);
+        out.push_back("start_time", shared::isoUtc(item->start_time));
+        out.push_back("end_time", shared::isoUtc(item->end_time));
+        out.push_back("order_id", item->order_id);
+        out.push_back("order_sn", item->order_sn);
+        out.push_back("order_status", item->order_status);
+        out.push_back("order_amount", item->order_amount);
+        api::send(req, resp, ApiResponse::ok(out));
     });
 }
 
