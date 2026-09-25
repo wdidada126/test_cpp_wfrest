@@ -137,6 +137,36 @@ void registerCommentRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
         out.push_back("content", content);
         api::send(req, resp, ApiResponse::created(out));
     });
+
+    // GET /api/v1/me/comments — current user's comments
+    sv.GET("/api/v1/me/comments",
+           [users, comments](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        api::PageQuery page;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::vector<domain::Comment> all =
+            comments->listOfUser(*user_id, page.offset(), page.page_size);
+
+        wfrest::Json::Array items;
+        for (const domain::Comment &comment : all)
+            items.push_back(commentToJson(comment));
+
+        api::send(req, resp,
+                  ApiResponse::ok(api::listBody(page, comments->countOfUser(*user_id), items)));
+    });
 }
 
 } // namespace ecshop::http
