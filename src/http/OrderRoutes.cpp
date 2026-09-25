@@ -4,6 +4,7 @@
 #include "ecshop/infrastructure/SqlCheckoutRepository.h"
 #include "ecshop/infrastructure/SqlOrderRepository.h"
 #include "ecshop/infrastructure/SqlUserRepository.h"
+#include "ecshop/shared/Money.h"
 #include "ecshop/shared/Password.h"
 #include "ecshop/shared/TimeUtil.h"
 
@@ -556,6 +557,74 @@ void registerOrderRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         case domain::OrderPatchStatus::NotFound:
         default:
             api::send(req, resp, ApiError::notFound("order or payment method not found"));
+            return;
+        }
+    });
+
+    // PATCH /api/v1/me/orders/{id}/surplus — {"amount":"10.00"}
+    sv.PATCH("/api/v1/me/orders/{id}/surplus",
+             [users, orders](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t order_id = 0;
+        if (!api::parsePathId(req, "id", order_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string amount_text;
+        int64_t amount_cents = 0;
+        if (!api::readStr(body, "amount", amount_text) ||
+            !shared::Money::parse(amount_text, amount_cents) || amount_cents <= 0)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "amount");
+            api::send(req, resp,
+                      ApiError::validationError("amount must be a positive decimal string",
+                                                details));
+            return;
+        }
+
+        domain::SurplusResult result = orders->payWithSurplus(*user_id, order_id, amount_cents);
+        switch (result.status)
+        {
+        case domain::OrderSurplusStatus::PartiallyPaid:
+        case domain::OrderSurplusStatus::FullyPaid:
+        {
+            wfrest::Json::Object out;
+            out.push_back("id", order_id);
+            out.push_back("applied", result.applied);
+            out.push_back("paid_total", result.paid_total);
+            out.push_back("remaining", result.remaining);
+            out.push_back("status", result.became_paid ? "paid" : "pending_payment");
+            api::send(req, resp, ApiResponse::ok(out));
+            return;
+        }
+        case domain::OrderSurplusStatus::InvalidState:
+            api::send(req, resp,
+                      ApiError::conflict("surplus_failed",
+                                         "insufficient balance or order not payable"));
+            return;
+        case domain::OrderSurplusStatus::NotFound:
+        default:
+            api::send(req, resp, ApiError::notFound("order not found"));
             return;
         }
     });

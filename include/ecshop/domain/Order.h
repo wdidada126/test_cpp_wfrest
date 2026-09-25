@@ -93,6 +93,24 @@ struct DeliveryAddressPatch
     std::string best_time;
 };
 
+// surplus patch result
+enum class OrderSurplusStatus
+{
+    PartiallyPaid, // amount accepted, order still pending_payment
+    FullyPaid,     // order flipped to paid
+    NotFound,
+    InvalidState,
+};
+
+struct SurplusResult
+{
+    OrderSurplusStatus status = OrderSurplusStatus::NotFound;
+    std::string applied;    // actually applied amount (after truncation)
+    std::string remaining;  // remaining payable (without payment fee)
+    std::string paid_total; // accumulated order_balance_payment.paid_cents
+    bool became_paid = false;
+};
+
 struct OrderPage
 {
     int64_t total = 0;
@@ -138,6 +156,11 @@ public:
     // PATCH /me/orders/{id}/payment — recompute fees; 400 on same method
     virtual OrderPatchStatus updatePaymentOfUser(int64_t user_id, int64_t order_id,
                                                  int64_t payment_id) = 0;
+
+    // PATCH /me/orders/{id}/surplus — pay with account balance; amount is
+    // truncated to the remaining payable (without payment fee)
+    virtual SurplusResult payWithSurplus(int64_t user_id, int64_t order_id,
+                                         int64_t amount_cents) = 0;
 };
 
 } // namespace ecshop::domain
