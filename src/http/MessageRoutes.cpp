@@ -200,6 +200,36 @@ void registerMessageRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
 
         api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
     });
+
+    // DELETE /api/v1/me/messages/{id} — owner-only, removes replies too
+    sv.DELETE("/api/v1/me/messages/{id}",
+              [users, messages](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t msg_id = 0;
+        if (!api::parsePathId(req, "id", msg_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        if (!messages->remove(*user_id, msg_id))
+        {
+            api::send(req, resp, ApiError::notFound("message not found"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::noContent());
+    });
 }
 
 } // namespace ecshop::http
