@@ -384,4 +384,71 @@ std::optional<domain::GoodsGallery> SqlCatalogRepository::findGallery(int64_t go
     return gallery;
 }
 
+domain::QuotationPage SqlCatalogRepository::listQuotation(const domain::GoodsFilter &filter,
+                                                          int64_t offset, int64_t limit)
+{
+    std::string where = "g.is_on_sale = 1 AND g.is_delete = 0";
+    Params params;
+
+    if (filter.category_id > 0)
+    {
+        where += " AND g.cat_id = ?";
+        params.push_back(std::to_string(filter.category_id));
+    }
+    if (filter.brand_id > 0)
+    {
+        where += " AND g.brand_id = ?";
+        params.push_back(std::to_string(filter.brand_id));
+    }
+    if (!filter.q.empty())
+    {
+        where += " AND (g.goods_name LIKE ? ESCAPE '!'"
+                 " OR g.goods_sn LIKE ? ESCAPE '!'"
+                 " OR g.keywords LIKE ? ESCAPE '!')";
+        std::string like = likeParam(filter.q);
+        params.push_back(like);
+        params.push_back(like);
+        params.push_back(like);
+    }
+
+    const std::string goods_t = db_->table("goods");
+    const std::string products_t = db_->table("products");
+    const std::string category_t = db_->table("category");
+
+    domain::QuotationPage page;
+
+    // count goods (each may contribute several SKU rows)
+    std::vector<Row> counts = db_->query(
+        "SELECT COUNT(*) AS total FROM " + goods_t + " g WHERE " + where, params);
+    if (!counts.empty())
+        page.total = counts.front().getInt("total");
+
+    // limit/offset are validated integers formatted by us; user data stays bound.
+    std::string sql =
+        "SELECT g.goods_id AS goods_id, g.goods_sn AS goods_sn,"
+        " p.product_id AS product_id, p.product_sn AS product_sn,"
+        " p.product_number AS product_number, p." + db_->productAttrCol() +
+        " AS attr_str, c.cat_name AS cat_name, g.shop_price AS shop_price"
+        " FROM " + goods_t + " g"
+        " LEFT JOIN " + products_t + " p ON p.goods_id = g.goods_id"
+        " LEFT JOIN " + category_t + " c ON c.cat_id = g.cat_id"
+        " WHERE " + where + " ORDER BY g.goods_id, p.product_id"
+        " LIMIT " + std::to_string(limit) + " OFFSET " + std::to_string(offset);
+
+    for (const Row &r : db_->query(sql, params))
+    {
+        domain::QuotationRow item;
+        item.goods_id = r.getInt("goods_id");
+        item.goods_sn = r.get("goods_sn");
+        item.product_id = r.getInt("product_id");
+        item.product_sn = r.get("product_sn");
+        item.category = r.get("cat_name");
+        item.price = shared::Money::normalize(r.get("shop_price"));
+        item.stock = r.getInt("product_number");
+        item.attribute_ids = parseAttrIds(r.get("attr_str"));
+        page.items.push_back(std::move(item));
+    }
+    return page;
+}
+
 } // namespace ecshop::infra

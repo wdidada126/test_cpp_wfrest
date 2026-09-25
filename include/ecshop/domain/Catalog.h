@@ -66,6 +66,25 @@ struct GoodsSummary
     std::string market_price;
 };
 
+// GET /api/v1/quotation rows: goods + SKU quote line
+struct QuotationRow
+{
+    int64_t goods_id = 0;
+    std::string goods_sn;
+    int64_t product_id = 0;
+    std::string product_sn;
+    std::string category;
+    std::string price; // base shop price, decimal string
+    int64_t stock = 0;
+    std::vector<int64_t> attribute_ids;
+};
+
+struct QuotationPage
+{
+    int64_t total = 0;
+    std::vector<QuotationRow> items;
+};
+
 // GET /api/v1/goods/{id}/gallery payload
 struct GoodsGallery
 {

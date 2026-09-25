@@ -2,6 +2,7 @@
 #include "ecshop/http/HttpUtil.h"
 #include "ecshop/infrastructure/SqlArticleRepository.h"
 #include "ecshop/infrastructure/SqlCatalogRepository.h"
+#include "ecshop/shared/Money.h"
 #include "ecshop/shared/TimeUtil.h"
 
 #include <algorithm>
@@ -611,6 +612,68 @@ void registerCatalogRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
         api::PageQuery page;
         api::send(req, resp,
                   ApiResponse::ok(api::listBody(page, static_cast<int64_t>(ids.size()), items)));
+    });
+
+    // GET /api/v1/quotation?category_id=&brand_id=&q=&page=&page_size=
+    sv.GET("/api/v1/quotation", [repo](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::PageQuery page;
+        api::ApiResponse err;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        domain::GoodsFilter filter;
+        filter.q = req->query("q");
+
+        for (const char *key : {"category_id", "brand_id"})
+        {
+            const std::string &raw = req->query(key);
+            if (raw.empty())
+                continue;
+
+            char *end = nullptr;
+            long long v = std::strtoll(raw.c_str(), &end, 10);
+            if (!end || *end != '\0' || v < 0)
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", std::string(key));
+                api::send(req, resp,
+                          ApiError::validationError(std::string(key) + " must be an integer",
+                                                    details));
+                return;
+            }
+            if (std::string(key) == "category_id")
+                filter.category_id = v;
+            else
+                filter.brand_id = v;
+        }
+
+        domain::QuotationPage result = repo->listQuotation(filter, page.offset(), page.page_size);
+
+        wfrest::Json::Array items;
+        for (const domain::QuotationRow &row : result.items)
+        {
+            wfrest::Json::Object item;
+            item.push_back("goods_id", row.goods_id);
+            item.push_back("goods_sn", row.goods_sn);
+            item.push_back("product_id", row.product_id);
+            item.push_back("product_sn", row.product_sn);
+            item.push_back("category", row.category);
+            item.push_back("price", row.price);
+            item.push_back("currency", "CNY");
+            item.push_back("stock", row.stock);
+
+            wfrest::Json::Array attrs;
+            for (int64_t id : row.attribute_ids)
+                attrs.push_back(id);
+            item.push_back("attribute_ids", attrs);
+            items.push_back(item);
+        }
+
+        api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
     });
 }
 
