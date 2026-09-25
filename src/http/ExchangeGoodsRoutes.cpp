@@ -110,6 +110,30 @@ void registerExchangeGoodsRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::
 
         api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
     });
+
+    // GET /api/v1/exchange-goods/{id} — exchange goods detail
+    sv.GET("/api/v1/exchange-goods/{id}",
+           [exchange](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        int64_t goods_id = 0;
+        if (!api::parsePathId(req, "id", goods_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        std::optional<domain::ExchangeGoodsRow> item = exchange->findEnabled(goods_id);
+        if (!item)
+        {
+            api::send(req, resp,
+                      ApiError::notFound("exchange goods not found or not exchangeable"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::ok(exchangeRowToJson(*item)));
+    });
 }
 
 } // namespace ecshop::http
