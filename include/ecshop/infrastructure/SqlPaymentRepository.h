@@ -3,6 +3,8 @@
 #include "ecshop/domain/PaymentRepository.h"
 #include "ecshop/infrastructure/db/Db.h"
 
+#include <memory>
+
 namespace ecshop::infra {
 
 class SqlPaymentRepository : public domain::PaymentRepository
