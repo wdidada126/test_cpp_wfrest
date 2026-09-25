@@ -31,6 +31,9 @@ public:
 
     // visible categories with goods_count (on-sale, not deleted, alone-sale)
     virtual std::vector<CategorySummary> listVisibleCategories() = 0;
+
+    // visible brands with goods_count, paged
+    virtual BrandPage listVisibleBrands(int64_t offset, int64_t limit) = 0;
 };
 
 } // namespace ecshop::domain

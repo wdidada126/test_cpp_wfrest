@@ -116,6 +116,17 @@ static wfrest::Json articleSummaryToJson(const domain::ArticleSummary &item)
     return obj;
 }
 
+static wfrest::Json brandToJson(const domain::BrandSummary &item)
+{
+    wfrest::Json::Object obj;
+    obj.push_back("brand_id", item.brand_id);
+    obj.push_back("name", item.name);
+    obj.push_back("logo", item.logo);
+    obj.push_back("site_url", item.site_url);
+    obj.push_back("goods_count", item.goods_count);
+    return obj;
+}
+
 void registerCatalogRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 {
     auto repo = std::make_shared<infra::SqlCatalogRepository>(db);
@@ -411,6 +422,26 @@ void registerCatalogRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
         out.push_back("articles", article_arr);
 
         api::send(req, resp, ApiResponse::ok(out));
+    });
+
+    // GET /api/v1/brands?page=&page_size=
+    sv.GET("/api/v1/brands", [repo](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::PageQuery page;
+        api::ApiResponse err;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        domain::BrandPage result = repo->listVisibleBrands(page.offset(), page.page_size);
+
+        wfrest::Json::Array items;
+        for (const domain::BrandSummary &item : result.items)
+            items.push_back(brandToJson(item));
+
+        api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
     });
 }
 

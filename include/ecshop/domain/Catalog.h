@@ -81,6 +81,21 @@ struct CategorySummary
     int64_t goods_count = 0;
 };
 
+struct BrandSummary
+{
+    int64_t brand_id = 0;
+    std::string name;
+    std::string logo;
+    std::string site_url;
+    int64_t goods_count = 0;
+};
+
+struct BrandPage
+{
+    int64_t total = 0;
+    std::vector<BrandSummary> items;
+};
+
 // GET /api/v1/goods filters. 0 means "no filter".
 struct GoodsFilter
 {

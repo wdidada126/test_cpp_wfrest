@@ -300,4 +300,39 @@ std::vector<domain::CategorySummary> SqlCatalogRepository::listVisibleCategories
     return items;
 }
 
+domain::BrandPage SqlCatalogRepository::listVisibleBrands(int64_t offset, int64_t limit)
+{
+    const std::string brand_t = db_->table("brand");
+    const std::string goods_t = db_->table("goods");
+
+    std::string count_sql = "SELECT COUNT(*) AS total FROM " + brand_t +
+                            " b WHERE b.is_show = 1";
+    domain::BrandPage page;
+    std::vector<Row> counts = db_->query(count_sql, {});
+    if (!counts.empty())
+        page.total = counts.front().getInt("total");
+
+    // limit/offset are validated integers formatted by us.
+    std::string sql =
+        "SELECT b.brand_id AS brand_id, b.brand_name AS brand_name,"
+        " b.brand_logo AS brand_logo, b.site_url AS site_url,"
+        " (SELECT COUNT(*) FROM " + goods_t + " g WHERE g.brand_id = b.brand_id"
+        " AND g.is_on_sale = 1 AND g.is_delete = 0 AND g.is_alone_sale = 1) AS goods_count"
+        " FROM " + brand_t + " b WHERE b.is_show = 1"
+        " ORDER BY b.sort_order, b.brand_id LIMIT " + std::to_string(limit) +
+        " OFFSET " + std::to_string(offset);
+
+    for (const Row &r : db_->query(sql, {}))
+    {
+        domain::BrandSummary item;
+        item.brand_id = r.getInt("brand_id");
+        item.name = r.get("brand_name");
+        item.logo = r.get("brand_logo");
+        item.site_url = r.get("site_url");
+        item.goods_count = r.getInt("goods_count");
+        page.items.push_back(std::move(item));
+    }
+    return page;
+}
+
 } // namespace ecshop::infra

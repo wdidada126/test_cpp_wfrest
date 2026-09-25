@@ -19,6 +19,7 @@ public:
                                   int64_t limit) override;
     std::vector<domain::GoodsSummary> listNewestGoods(int64_t limit) override;
     std::vector<domain::CategorySummary> listVisibleCategories() override;
+    domain::BrandPage listVisibleBrands(int64_t offset, int64_t limit) override;
 
 private:
     domain::GoodsPage listGoods(const std::string &where_sql,
