@@ -257,7 +257,10 @@ std::optional<domain::OrderDetail> SqlOrderRepository::findOfUser(int64_t user_i
         return std::nullopt;
 
     const Row &row = rows.front();
-    domain::OrderDetail detail = rowToOrderSummary(row);
+    // OrderDetail derives from OrderSummary: a base-class value cannot be
+    // copy-initialized into a derived object. Assign the base subobject.
+    domain::OrderDetail detail;
+    static_cast<domain::OrderSummary &>(detail) = rowToOrderSummary(row);
     detail.consignee = row.get("consignee");
     detail.address = row.get("address");
     detail.mobile = row.get("mobile");
