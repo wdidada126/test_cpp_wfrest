@@ -13,6 +13,7 @@
 #include "ecshop/http/MessageRoutes.h"
 #include "ecshop/http/NewsletterRoutes.h"
 #include "ecshop/http/OrderRoutes.h"
+#include "ecshop/http/PackageRoutes.h"
 #include "ecshop/http/PaymentRoutes.h"
 #include "ecshop/http/PromotionRoutes.h"
 #include "ecshop/http/PublicRoutes.h"
@@ -70,6 +71,7 @@ int main(int argc, char **argv)
     ecshop::http::registerNewsletterRoutes(sv, db);
     ecshop::http::registerPaymentRoutes(sv, db);
     ecshop::http::registerPromotionRoutes(sv, db);
+    ecshop::http::registerPackageRoutes(sv, db);
     ecshop::http::registerRegionRoutes(sv, db);
 
     // GET /ping -> pong
