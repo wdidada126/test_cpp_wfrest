@@ -111,6 +111,13 @@ struct SurplusResult
     bool became_paid = false;
 };
 
+enum class OrderMergeStatus
+{
+    Merged,       // 201, new order created
+    NotFound,     // one of the orders missing/not owned
+    InvalidState, // same ids / not pending / balance used
+};
+
 struct OrderPage
 {
     int64_t total = 0;
@@ -161,6 +168,11 @@ public:
     // truncated to the remaining payable (without payment fee)
     virtual SurplusResult payWithSurplus(int64_t user_id, int64_t order_id,
                                          int64_t amount_cents) = 0;
+
+    // POST /me/orders/merge — merge two own pending_payment orders without
+    // balance usage into one new order
+    virtual OrderMergeStatus mergeOrders(int64_t user_id, int64_t from_order_id,
+                                         int64_t to_order_id, OrderSummary &out) = 0;
 };
 
 } // namespace ecshop::domain
