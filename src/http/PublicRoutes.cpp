@@ -321,6 +321,24 @@ void registerPublicRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
         resp->add_header("Content-Type", "application/rss+xml; charset=utf-8");
         resp->String(xml);
     });
+
+    // GET /cycle-image.xml — active image ads as rotating banner XML
+    sv.GET("/cycle-image.xml",
+           [feed](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        std::string xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<bcaster>\n";
+        for (const domain::AdImage &ad : feed->listImageAds())
+        {
+            xml += "<item id=\"" + std::to_string(ad.ad_id) + "\" position=\"" +
+                   std::to_string(ad.position_id) + "\" name=\"" + xmlEscape(ad.name) +
+                   "\" link=\"" + xmlEscape(ad.link) + "\" code=\"" + xmlEscape(ad.code) +
+                   "\"/>\n";
+        }
+        xml += "</bcaster>\n";
+
+        resp->add_header("Content-Type", "application/xml; charset=utf-8");
+        resp->String(xml);
+    });
 }
 
 } // namespace ecshop::http

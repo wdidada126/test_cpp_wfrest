@@ -44,4 +44,27 @@ std::vector<domain::FeedItem> SqlFeedRepository::listFavourableItems(int64_t lim
     return items;
 }
 
+std::vector<domain::AdImage> SqlFeedRepository::listImageAds()
+{
+    std::string sql =
+        "SELECT ad_id AS ad_id, position_id AS position_id, ad_name AS ad_name,"
+        " ad_link AS ad_link, ad_code AS ad_code FROM " + db_->table("ad") +
+        " WHERE media_type = 0 AND enabled = 1 AND start_time <= " + db_->nowExpr() +
+        " AND end_time >= " + db_->nowExpr() +
+        " ORDER BY position_id, ad_id";
+
+    std::vector<domain::AdImage> items;
+    for (const Row &row : db_->query(sql, {}))
+    {
+        domain::AdImage item;
+        item.ad_id = row.getInt("ad_id");
+        item.position_id = row.getInt("position_id");
+        item.name = row.get("ad_name");
+        item.link = row.get("ad_link");
+        item.code = row.get("ad_code");
+        items.push_back(std::move(item));
+    }
+    return items;
+}
+
 } // namespace ecshop::infra

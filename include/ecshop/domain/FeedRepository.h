@@ -17,6 +17,16 @@ struct FeedItem
     std::string description;
 };
 
+// active image ad row (media_type = 0)
+struct AdImage
+{
+    int64_t ad_id = 0;
+    int64_t position_id = 0;
+    std::string name;
+    std::string link;
+    std::string code;
+};
+
 // Marketing activity reads shared by /feed.xml and /api/v1/promotions.
 class FeedRepository
 {
@@ -29,6 +39,9 @@ public:
 
     // favourable_activity rows in the current time window
     virtual std::vector<FeedItem> listFavourableItems(int64_t limit) = 0;
+
+    // active image ads ordered by position and id (docs/03 /cycle-image.xml)
+    virtual std::vector<AdImage> listImageAds() = 0;
 };
 
 } // namespace ecshop::domain

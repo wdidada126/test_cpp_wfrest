@@ -12,6 +12,7 @@ public:
 
     std::vector<domain::FeedItem> listActivityItems(int64_t act_type, int64_t limit) override;
     std::vector<domain::FeedItem> listFavourableItems(int64_t limit) override;
+    std::vector<domain::AdImage> listImageAds() override;
 
 private:
     std::shared_ptr<Db> db_;
