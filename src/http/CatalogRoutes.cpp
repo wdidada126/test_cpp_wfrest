@@ -3,6 +3,11 @@
 #include "ecshop/infrastructure/SqlCatalogRepository.h"
 #include "ecshop/shared/TimeUtil.h"
 
+#include <algorithm>
+#include <cstdlib>
+#include <optional>
+#include <vector>
+
 namespace ecshop::http {
 
 using api::ApiError;
@@ -141,6 +146,65 @@ void registerCatalogRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
         }
 
         domain::GoodsPage result = repo->listCategoryGoods(cat_id, page.offset(), page.page_size);
+
+        wfrest::Json::Array items;
+        for (const domain::GoodsSummary &item : result.items)
+            items.push_back(goodsSummaryToJson(item));
+
+        api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
+    });
+
+    // GET /api/v1/goods?q=&category_id=&brand_id=&sort=&page=&page_size=
+    sv.GET("/api/v1/goods", [repo](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::PageQuery page;
+        api::ApiResponse err;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        domain::GoodsFilter filter;
+        filter.q = req->query("q");
+
+        for (const char *key : {"category_id", "brand_id"})
+        {
+            const std::string &raw = req->query(key);
+            if (raw.empty())
+                continue;
+
+            char *end = nullptr;
+            long long v = std::strtoll(raw.c_str(), &end, 10);
+            if (!end || *end != '\0' || v < 0)
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", std::string(key));
+                api::send(req, resp,
+                          ApiError::validationError(std::string(key) + " must be an integer",
+                                                    details));
+                return;
+            }
+            if (std::string(key) == "category_id")
+                filter.category_id = v;
+            else
+                filter.brand_id = v;
+        }
+
+        filter.sort = req->query("sort");
+        static const std::vector<std::string> kSorts = {
+            "", "price_asc", "price_desc", "newest", "sales"};
+        if (std::find(kSorts.begin(), kSorts.end(), filter.sort) == kSorts.end())
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "sort");
+            api::send(req, resp,
+                      ApiError::validationError(
+                          "sort must be one of price_asc|price_desc|newest|sales", details));
+            return;
+        }
+
+        domain::GoodsPage result = repo->searchGoods(filter, page.offset(), page.page_size);
 
         wfrest::Json::Array items;
         for (const domain::GoodsSummary &item : result.items)

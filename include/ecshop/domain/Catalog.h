@@ -73,4 +73,13 @@ struct GoodsPage
     std::vector<GoodsSummary> items;
 };
 
+// GET /api/v1/goods filters. 0 means "no filter".
+struct GoodsFilter
+{
+    std::string q;
+    int64_t category_id = 0;
+    int64_t brand_id = 0;
+    std::string sort; // price_asc|price_desc|newest|sales, empty = goods_id
+};
+
 } // namespace ecshop::domain

@@ -22,6 +22,9 @@ public:
 
     // on-sale, not deleted goods of one category
     virtual GoodsPage listCategoryGoods(int64_t cat_id, int64_t offset, int64_t limit) = 0;
+
+    // on-sale, not deleted goods matching the search filters
+    virtual GoodsPage searchGoods(const GoodsFilter &filter, int64_t offset, int64_t limit) = 0;
 };
 
 } // namespace ecshop::domain
