@@ -55,6 +55,62 @@ void registerCartRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         out.push_back("total_quantity", total_quantity);
         api::send(req, resp, ApiResponse::ok(out));
     });
+
+    // POST /api/v1/me/cart — add item (accumulates quantity on repeat)
+    sv.POST("/api/v1/me/cart", [users, cart](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t goods_id = 0;
+        if (!api::readInt(body, "goods_id", goods_id) || goods_id <= 0)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "goods_id");
+            api::send(req, resp,
+                      ApiError::validationError("goods_id must be a positive integer", details));
+            return;
+        }
+
+        int64_t quantity = 0;
+        if (!api::readInt(body, "quantity", quantity))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "quantity");
+            api::send(req, resp, ApiError::validationError("quantity is required", details));
+            return;
+        }
+        if (quantity < 1 || quantity > 999)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "quantity");
+            api::send(req, resp,
+                      ApiError::validationError("quantity must be between 1 and 999", details));
+            return;
+        }
+
+        domain::CartItem item;
+        domain::CartAddResult result = cart->add(*user_id, goods_id, quantity, item);
+        if (result == domain::CartAddResult::GoodsNotVisible)
+        {
+            api::send(req, resp, ApiError::notFound("goods not found"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::created(cartItemToJson(item)));
+    });
 }
 
 } // namespace ecshop::http
