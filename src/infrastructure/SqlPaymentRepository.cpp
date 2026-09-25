@@ -1,4 +1,5 @@
 #include "ecshop/infrastructure/SqlPaymentRepository.h"
+#include "ecshop/shared/Money.h"
 
 namespace ecshop::infra {
 
