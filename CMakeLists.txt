@@ -120,6 +120,7 @@ set(ECSHOP_SOURCES
     src/http/MeRoutes.cpp
     src/http/AddressRoutes.cpp
     src/http/FavoriteRoutes.cpp
+    src/http/CartRoutes.cpp
     src/http/HttpUtil.cpp
     src/http/HealthRoutes.cpp
     src/http/CatalogRoutes.cpp
@@ -134,6 +135,7 @@ set(ECSHOP_SOURCES
     src/infrastructure/SqlAccountTokenRepository.cpp
     src/infrastructure/SqlAddressRepository.cpp
     src/infrastructure/SqlFavoriteRepository.cpp
+    src/infrastructure/SqlCartRepository.cpp
 )
 
 add_executable(wfrest_server ${ECSHOP_SOURCES})
