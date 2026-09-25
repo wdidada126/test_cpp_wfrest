@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }}, C++${{ matrix.std }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-22.04]
+        std: [17, 20]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            git \
+            pkg-config \
+            libssl-dev \
+            libcurl4-openssl-dev \
+            zlib1g-dev
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_STANDARD=${{ matrix.std }}
+
+      - name: Build
+        run: |
+          cmake --build build --parallel $(nproc)
+
+      - name: Smoke test - start server and ping
+        run: |
+          ./build/wfrest_server 8080 &
+          SERVER_PID=$!
+          sleep 3
+          # /ping
+          echo "--- /ping ---"
+          curl -sS http://127.0.0.1:8080/ping || true
+          # /json
+          echo -e "\n--- /json ---"
+          curl -sS http://127.0.0.1:8080/json || true
+          # /echo (POST)
+          echo -e "\n--- /echo ---"
+          curl -sS -X POST -d "hello wfrest" http://127.0.0.1:8080/echo || true
+          echo
+          kill $SERVER_PID || true
+          wait $SERVER_PID 2>/dev/null || true
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wfrest_server-${{ matrix.os }}-cpp${{ matrix.std }}
+          path: build/wfrest_server
+          if-no-files-found: warn
