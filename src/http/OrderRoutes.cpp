@@ -1,6 +1,7 @@
 #include "ecshop/http/OrderRoutes.h"
 #include "ecshop/http/AuthUtil.h"
 #include "ecshop/http/HttpUtil.h"
+#include "ecshop/infrastructure/SqlAffiliateRepository.h"
 #include "ecshop/infrastructure/SqlCheckoutRepository.h"
 #include "ecshop/infrastructure/SqlGroupBuyRepository.h"
 #include "ecshop/infrastructure/SqlOrderRepository.h"
@@ -757,6 +758,64 @@ void registerOrderRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         out.push_back("order_sn", item->order_sn);
         out.push_back("order_status", item->order_status);
         out.push_back("order_amount", item->order_amount);
+        api::send(req, resp, ApiResponse::ok(out));
+    });
+
+    auto affiliate = std::make_shared<infra::SqlAffiliateRepository>(db);
+    sv.GET("/api/v1/me/affiliate",
+           [users, affiliate](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        api::PageQuery page;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        wfrest::Json::Object out;
+
+        wfrest::Json::Array levels;
+        for (const domain::AffiliateLevel &level : affiliate->levelsOf(*user_id))
+        {
+            wfrest::Json::Object it;
+            it.push_back("level", level.level);
+            it.push_back("users", level.users);
+            levels.push_back(it);
+        }
+        out.push_back("levels", levels);
+
+        int64_t total = affiliate->ordersCount(*user_id);
+        std::vector<domain::AffiliateOrderRow> rows =
+            affiliate->ordersOf(*user_id, page.offset(), page.page_size);
+
+        wfrest::Json::Array items;
+        for (const domain::AffiliateOrderRow &row : rows)
+        {
+            wfrest::Json::Object item;
+            item.push_back("order_id", row.order_id);
+            item.push_back("order_sn", row.order_sn_masked);
+            item.push_back("order_amount", row.order_amount);
+            item.push_back("separated", row.separated);
+            if (row.separated)
+            {
+                item.push_back("money", row.money);
+                item.push_back("point", row.point);
+                item.push_back("separate_type", row.separate_type);
+            }
+            item.push_back("created_at",
+                           shared::isoUtc(std::strtoll(row.created_at.c_str(), nullptr, 10)));
+            items.push_back(item);
+        }
+        out.push_back("orders", api::listBody(page, total, items));
+
         api::send(req, resp, ApiResponse::ok(out));
     });
 }
