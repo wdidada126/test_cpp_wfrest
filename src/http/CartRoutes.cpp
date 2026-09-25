@@ -111,6 +111,69 @@ void registerCartRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 
         api::send(req, resp, ApiResponse::created(cartItemToJson(item)));
     });
+
+    // PATCH /api/v1/me/cart/{id} — quantity with optimistic version lock
+    sv.PATCH("/api/v1/me/cart/{id}", [users, cart](const wfrest::HttpReq *req,
+                                                   wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t rec_id = 0;
+        if (!api::parsePathId(req, "id", rec_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t quantity = 0;
+        if (!api::readInt(body, "quantity", quantity) || quantity < 1 || quantity > 999)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "quantity");
+            api::send(req, resp,
+                      ApiError::validationError("quantity must be between 1 and 999", details));
+            return;
+        }
+
+        int64_t version = 0;
+        if (!api::readInt(body, "version", version) || version < 1)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "version");
+            api::send(req, resp, ApiError::validationError("version is required", details));
+            return;
+        }
+
+        std::optional<bool> updated = cart->updateQuantity(*user_id, rec_id, quantity, version);
+        if (!updated)
+        {
+            api::send(req, resp, ApiError::notFound("cart item not found"));
+            return;
+        }
+        if (!*updated)
+        {
+            api::send(req, resp,
+                      ApiError::conflict("version_conflict", "cart item version is stale"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::noContent());
+    });
 }
 
 } // namespace ecshop::http
