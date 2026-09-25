@@ -678,4 +678,130 @@ domain::OrderPatchStatus SqlOrderRepository::updatePaymentOfUser(int64_t user_id
     return status;
 }
 
+domain::SurplusResult SqlOrderRepository::payWithSurplus(int64_t user_id, int64_t order_id,
+                                                         int64_t amount_cents)
+{
+    using domain::OrderSurplusStatus;
+    using domain::SurplusResult;
+
+    const std::string order_t = db_->table("order_info");
+    const std::string payment_t = db_->table("payment");
+    const std::string balance_t = db_->table("account_balance");
+    const std::string balance_pay_t = db_->table("order_balance_payment");
+    const std::string log_t = db_->table("account_log");
+    const std::string action_t = db_->table("order_action");
+    bool sqlite = std::string(db_->driverName()) == "sqlite";
+
+    SurplusResult result;
+
+    db_->transaction([&] {
+        std::vector<Row> rows = db_->query(
+            "SELECT order_amount AS order_amount, payment_fee AS payment_fee"
+            " FROM " + order_t + " WHERE order_id = ? AND user_id = ? AND order_status = 'pending_payment'",
+            {std::to_string(order_id), std::to_string(user_id)});
+        if (rows.empty())
+            return;
+
+        int64_t order_cents = 0;
+        shared::Money::parse(shared::Money::normalize(rows.front().get("order_amount")),
+                             order_cents);
+        int64_t fee_cents = 0;
+        shared::Money::parse(shared::Money::normalize(rows.front().get("payment_fee")),
+                             fee_cents);
+
+        // remaining payable excludes the fixed payment fee
+        int64_t payable_cents = order_cents - fee_cents;
+        if (payable_cents < 0)
+            payable_cents = 0;
+
+        int64_t paid_cents = 0;
+        std::vector<Row> paid = db_->query(
+            "SELECT paid_cents AS paid_cents FROM " + balance_pay_t + " WHERE order_id = ?",
+            {std::to_string(order_id)});
+        if (!paid.empty())
+            paid_cents = paid.front().getInt("paid_cents");
+
+        int64_t remaining_cents = payable_cents - paid_cents;
+        if (remaining_cents <= 0)
+        {
+            result.status = domain::OrderSurplusStatus::InvalidState;
+            return;
+        }
+
+        int64_t applied_cents = amount_cents < remaining_cents ? amount_cents : remaining_cents;
+
+        // conditional balance deduction against funds available
+        int64_t balance_changed = db_->execute(
+            "UPDATE " + balance_t + " SET available_cents = available_cents - ?" +
+                " WHERE user_id = ? AND available_cents >= ?",
+            {std::to_string(applied_cents), std::to_string(user_id),
+             std::to_string(applied_cents)});
+        if (balance_changed == 0)
+        {
+            result.status = domain::OrderSurplusStatus::InvalidState; // insufficient
+            return;
+        }
+
+        int64_t paid_total_cents = paid_cents + applied_cents;
+
+        // accumulate the standalone balance payment table
+        int64_t upsert_changed = db_->execute(
+            "UPDATE " + balance_pay_t + " SET paid_cents = ?, updated_at = ? WHERE order_id = ?",
+            {std::to_string(paid_total_cents), db_->datetimeFromUnix(shared::nowUnix()),
+             std::to_string(order_id)});
+        if (upsert_changed == 0)
+        {
+            db_->execute("INSERT INTO " + balance_pay_t +
+                             " (order_id, user_id, paid_cents, updated_at) VALUES (?, ?, ?, ?)",
+                         {std::to_string(order_id), std::to_string(user_id),
+                          std::to_string(paid_total_cents),
+                          db_->datetimeFromUnix(shared::nowUnix())});
+        }
+
+        db_->execute("INSERT INTO " + log_t +
+                         " (user_id, available_delta_cents, frozen_delta_cents, reason,"
+                         " reference_type, reference_id)"
+                         " VALUES (?, ?, 0, 'order surplus payment', 'order_info', ?)",
+                     {std::to_string(user_id), std::to_string(-applied_cents),
+                      std::to_string(order_id)});
+
+        bool became_paid = paid_total_cents >= payable_cents;
+        if (became_paid)
+        {
+            int64_t flipped = db_->execute(
+                "UPDATE " + order_t + " SET order_status = 'paid', pay_time = " +
+                    db_->unixNow() +
+                    " WHERE order_id = ? AND order_status = 'pending_payment'",
+                {std::to_string(order_id)});
+            if (flipped == 0)
+            {
+                result.status = domain::OrderSurplusStatus::InvalidState;
+                return;
+            }
+        }
+
+        if (sqlite)
+        {
+            db_->execute("INSERT INTO " + action_t +
+                             " (order_id, actor_user_id, action, note) VALUES (?, ?, 'surplus', '')",
+                         {std::to_string(order_id), std::to_string(user_id)});
+        }
+        else
+        {
+            db_->execute("INSERT INTO " + action_t +
+                             " (order_id, actor_type, actor_id, action_note)"
+                             " VALUES (?, 'user', ?, 'edit_surplus')",
+                         {std::to_string(order_id), std::to_string(user_id)});
+        }
+
+        result.status = became_paid ? domain::OrderSurplusStatus::FullyPaid
+                                    : domain::OrderSurplusStatus::PartiallyPaid;
+        result.applied = shared::Money::format(applied_cents);
+        result.remaining = shared::Money::format(payable_cents - paid_total_cents);
+        result.paid_total = shared::Money::format(paid_total_cents);
+        result.became_paid = became_paid;
+    });
+    return result;
+}
+
 } // namespace ecshop::infra

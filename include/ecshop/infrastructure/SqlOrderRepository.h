@@ -27,6 +27,8 @@ public:
                                                  const domain::DeliveryAddressPatch &patch) override;
     domain::OrderPatchStatus updatePaymentOfUser(int64_t user_id, int64_t order_id,
                                                  int64_t payment_id) override;
+    domain::SurplusResult payWithSurplus(int64_t user_id, int64_t order_id,
+                                         int64_t amount_cents) override;
 
 private:
     std::string makeOrderSn();
