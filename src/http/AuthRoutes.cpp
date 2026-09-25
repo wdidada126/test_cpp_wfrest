@@ -1,8 +1,10 @@
 #include "ecshop/http/AuthRoutes.h"
 #include "ecshop/http/AuthUtil.h"
 #include "ecshop/http/HttpUtil.h"
+#include "ecshop/infrastructure/SqlAccountTokenRepository.h"
 #include "ecshop/infrastructure/SqlUserRepository.h"
 #include "ecshop/shared/Password.h"
+#include "ecshop/shared/TimeUtil.h"
 
 #include <optional>
 
@@ -21,6 +23,7 @@ static bool looksLikeEmail(const std::string &email)
 void registerAuthRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 {
     auto users = std::make_shared<infra::SqlUserRepository>(db);
+    auto tokens = std::make_shared<infra::SqlAccountTokenRepository>(db);
 
     // POST /api/v1/auth/register
     sv.POST("/api/v1/auth/register", [users](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
@@ -209,6 +212,41 @@ void registerAuthRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         const std::string &header = req->header("Authorization");
         std::string token = header.substr(std::string("Bearer ").size());
         users->deleteSession(shared::sha256Hex(token));
+        api::send(req, resp, ApiResponse::noContent());
+    });
+
+    // POST /api/v1/email-verifications/confirm — consume a verification token
+    sv.POST("/api/v1/email-verifications/confirm",
+            [tokens](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        wfrest::Json body;
+        api::ApiResponse err;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string token;
+        if (!api::readStr(body, "token", token) || token.size() != 64 ||
+            token.find_first_not_of("0123456789abcdef") != std::string::npos)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "token");
+            api::send(req, resp,
+                      ApiError::validationError("token must be 64 lowercase hex chars", details));
+            return;
+        }
+
+        std::optional<int64_t> user_id =
+            tokens->consumeEmailVerification(shared::sha256Hex(token), shared::nowUnix());
+        if (!user_id)
+        {
+            api::send(req, resp,
+                      ApiError::conflict("token_invalid", "token is invalid or expired"));
+            return;
+        }
+
         api::send(req, resp, ApiResponse::noContent());
     });
 }
