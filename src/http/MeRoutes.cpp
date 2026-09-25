@@ -451,6 +451,53 @@ void registerMeRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         out.push_back("created_at", shared::isoUtc(shared::nowUnix()));
         api::send(req, resp, ApiResponse::created(out));
     });
+
+    // GET /api/v1/me/account/requests — deposit/withdrawal requests + balances
+    sv.GET("/api/v1/me/account/requests",
+           [users, account](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        api::PageQuery page;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        domain::AccountRequestPage result =
+            account->listRequests(*user_id, page.offset(), page.page_size);
+
+        wfrest::Json::Array items;
+        for (const domain::AccountRequest &request : result.items)
+        {
+            wfrest::Json::Object item;
+            item.push_back("id", request.id);
+            item.push_back("kind", request.kind);
+            item.push_back("amount", request.amount);
+            item.push_back("currency", "CNY");
+            item.push_back("status", request.status);
+            item.push_back("payment_id", request.payment_id);
+            item.push_back("note", request.note);
+            item.push_back("created_at",
+                           shared::isoUtc(std::strtoll(request.created_at.c_str(), nullptr, 10)));
+            if (!request.paid_at.empty())
+                item.push_back("paid_at",
+                               shared::isoUtc(std::strtoll(request.paid_at.c_str(), nullptr, 10)));
+            items.push_back(item);
+        }
+
+        wfrest::Json out = api::listBody(page, result.total, items);
+        out.push_back("available_balance", result.balance.available);
+        out.push_back("frozen_balance", result.balance.frozen);
+        api::send(req, resp, ApiResponse::ok(out));
+    });
 }
 
 } // namespace ecshop::http

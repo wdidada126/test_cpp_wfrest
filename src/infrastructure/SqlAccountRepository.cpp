@@ -1,6 +1,24 @@
 #include "ecshop/infrastructure/SqlAccountRepository.h"
+#include "ecshop/shared/Money.h"
 
 namespace ecshop::infra {
+
+using domain::AccountRequest;
+using domain::Balance;
+
+static AccountRequest rowToRequest(const Row &row)
+{
+    AccountRequest request;
+    request.id = row.getInt("rec_id");
+    request.kind = row.get("process_type");
+    request.amount = shared::Money::format(row.getInt("amount_cents"));
+    request.status = row.get("status");
+    request.payment_id = row.getInt("payment_id");
+    request.note = row.get("user_note");
+    request.created_at = row.get("created_at");
+    request.paid_at = row.get("paid_at");
+    return request;
+}
 
 bool SqlAccountRepository::paymentEnabled(int64_t payment_id)
 {
@@ -66,6 +84,51 @@ bool SqlAccountRepository::createWithdrawalRequest(int64_t user_id, int64_t amou
                       "withdrawal requested", std::to_string(request_id)});
     });
     return ok;
+}
+
+Balance SqlAccountRepository::balanceOf(int64_t user_id)
+{
+    std::string sql = "SELECT available_cents AS available_cents, frozen_cents AS frozen_cents"
+                      " FROM " + db_->table("account_balance") + " WHERE user_id = ?";
+    std::vector<Row> rows = db_->query(sql, {std::to_string(user_id)});
+
+    Balance balance;
+    if (rows.empty())
+    {
+        balance.available = "0.00";
+        balance.frozen = "0.00";
+        return balance;
+    }
+    balance.available = shared::Money::format(rows.front().getInt("available_cents"));
+    balance.frozen = shared::Money::format(rows.front().getInt("frozen_cents"));
+    return balance;
+}
+
+domain::AccountRequestPage SqlAccountRepository::listRequests(int64_t user_id, int64_t offset,
+                                                              int64_t limit)
+{
+    domain::AccountRequestPage page;
+    page.balance = balanceOf(user_id);
+
+    const std::string account_t = db_->table("user_account");
+    std::vector<Row> counts = db_->query(
+        "SELECT COUNT(*) AS total FROM " + account_t + " WHERE user_id = ?",
+        {std::to_string(user_id)});
+    if (!counts.empty())
+        page.total = counts.front().getInt("total");
+
+    // limit/offset are validated integers formatted by us; user data stays bound.
+    std::string sql =
+        "SELECT rec_id AS rec_id, process_type AS process_type, amount_cents AS amount_cents,"
+        " status AS status, payment_id AS payment_id, user_note AS user_note," +
+        db_->toUnix("created_at") + " AS created_at, " +
+        db_->toUnix("paid_at") + " AS paid_at FROM " + account_t +
+        " WHERE user_id = ? ORDER BY rec_id DESC LIMIT " + std::to_string(limit) +
+        " OFFSET " + std::to_string(offset);
+
+    for (const Row &row : db_->query(sql, {std::to_string(user_id)}))
+        page.items.push_back(rowToRequest(row));
+    return page;
 }
 
 } // namespace ecshop::infra

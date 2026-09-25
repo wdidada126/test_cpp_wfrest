@@ -26,6 +26,11 @@ public:
     // insufficient. Inserts request + ledger inside the same transaction.
     virtual bool createWithdrawalRequest(int64_t user_id, int64_t amount_cents,
                                          const std::string &note, int64_t &request_id) = 0;
+
+    // current balances; zero amounts when the user has no rows yet
+    virtual Balance balanceOf(int64_t user_id) = 0;
+
+    virtual AccountRequestPage listRequests(int64_t user_id, int64_t offset, int64_t limit) = 0;
 };
 
 } // namespace ecshop::domain

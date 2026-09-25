@@ -16,6 +16,9 @@ public:
                                  int64_t payment_id, const std::string &note) override;
     bool createWithdrawalRequest(int64_t user_id, int64_t amount_cents,
                                  const std::string &note, int64_t &request_id) override;
+    domain::Balance balanceOf(int64_t user_id) override;
+    domain::AccountRequestPage listRequests(int64_t user_id, int64_t offset,
+                                            int64_t limit) override;
 
 private:
     std::shared_ptr<Db> db_;
