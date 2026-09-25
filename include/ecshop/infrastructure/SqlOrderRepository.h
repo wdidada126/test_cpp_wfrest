@@ -16,6 +16,8 @@ public:
                                         domain::OrderSummary &out) override;
     domain::OrderPage listOfUser(int64_t user_id, int64_t offset, int64_t limit) override;
     std::optional<domain::OrderDetail> findOfUser(int64_t user_id, int64_t order_id) override;
+    domain::OrderCancelStatus cancelOfUser(int64_t user_id, int64_t order_id,
+                                           domain::OrderSummary &out) override;
 
 private:
     std::string makeOrderSn();

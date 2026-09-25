@@ -59,6 +59,13 @@ enum class PlaceOrderStatus
     EmptyCart,
 };
 
+enum class OrderCancelStatus
+{
+    Cancelled,
+    NotFound,
+    InvalidState,
+};
+
 struct OrderPage
 {
     int64_t total = 0;
@@ -79,6 +86,11 @@ public:
 
     // nullopt when the order does not belong to this user
     virtual std::optional<OrderDetail> findOfUser(int64_t user_id, int64_t order_id) = 0;
+
+    // cancel a pending_payment order: restocks goods, refunds used balance and
+    // writes order/account audits in one transaction
+    virtual OrderCancelStatus cancelOfUser(int64_t user_id, int64_t order_id,
+                                           OrderSummary &out) = 0;
 };
 
 } // namespace ecshop::domain

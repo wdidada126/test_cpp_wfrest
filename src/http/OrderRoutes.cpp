@@ -258,6 +258,46 @@ void registerOrderRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 
         api::send(req, resp, ApiResponse::ok(orderDetailToJson(*order)));
     });
+
+    // POST /api/v1/me/orders/{id}/cancel — cancel a pending_payment order
+    sv.POST("/api/v1/me/orders/{id}/cancel",
+            [users, orders](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t order_id = 0;
+        if (!api::parsePathId(req, "id", order_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        domain::OrderSummary order;
+        domain::OrderCancelStatus status = orders->cancelOfUser(*user_id, order_id, order);
+
+        switch (status)
+        {
+        case domain::OrderCancelStatus::Cancelled:
+            api::send(req, resp, ApiResponse::ok(orderToJson(order)));
+            return;
+        case domain::OrderCancelStatus::InvalidState:
+            api::send(req, resp,
+                      ApiError::invalidState("only pending_payment orders can be cancelled"));
+            return;
+        case domain::OrderCancelStatus::NotFound:
+        default:
+            api::send(req, resp, ApiError::notFound("order not found"));
+            return;
+        }
+    });
 }
 
 } // namespace ecshop::http

@@ -282,4 +282,101 @@ std::optional<domain::OrderDetail> SqlOrderRepository::findOfUser(int64_t user_i
     return detail;
 }
 
+domain::OrderCancelStatus SqlOrderRepository::cancelOfUser(int64_t user_id, int64_t order_id,
+                                                           OrderSummary &out)
+{
+    const std::string order_t = db_->table("order_info");
+    const std::string order_goods_t = db_->table("order_goods");
+    const std::string goods_t = db_->table("goods");
+    const std::string balance_t = db_->table("account_balance");
+    const std::string log_t = db_->table("account_log");
+    const std::string action_t = db_->table("order_action");
+    const std::string balance_payment_t = db_->table("order_balance_payment");
+    bool sqlite = std::string(db_->driverName()) == "sqlite";
+
+    domain::OrderCancelStatus status = domain::OrderCancelStatus::NotFound;
+
+    db_->transaction([&] {
+        // only the owner's pending_payment order can be cancelled
+        std::string order_time = db_->orderTimeCol();
+        std::string summary_cols =
+            "order_id AS order_id, order_sn AS order_sn, order_status AS order_status,"
+            " goods_amount AS goods_amount, shipping_fee AS shipping_fee,"
+            " payment_fee AS payment_fee, order_amount AS order_amount," +
+            db_->toUnix(order_time) + " AS created_at";
+
+        std::vector<Row> rows = db_->query(
+            "SELECT " + summary_cols + " FROM " + order_t +
+                " WHERE order_id = ? AND user_id = ?",
+            {std::to_string(order_id), std::to_string(user_id)});
+        if (rows.empty())
+            return;
+
+        // conditional status flip: concurrent cancels cannot double-restock
+        int64_t flipped = db_->execute(
+            "UPDATE " + order_t +
+                " SET order_status = 'cancelled' WHERE order_id = ? AND user_id = ?"
+                " AND order_status = 'pending_payment'",
+            {std::to_string(order_id), std::to_string(user_id)});
+        if (flipped == 0)
+        {
+            status = domain::OrderCancelStatus::InvalidState;
+            return;
+        }
+
+        // restock the snapshot quantities
+        std::vector<Row> snapshot = db_->query(
+            "SELECT goods_id AS goods_id, goods_number AS goods_number FROM " + order_goods_t +
+                " WHERE order_id = ?",
+            {std::to_string(order_id)});
+        for (const Row &item : snapshot)
+        {
+            db_->execute("UPDATE " + goods_t + " SET goods_number = goods_number + ?" +
+                             " WHERE goods_id = ?",
+                         {std::to_string(item.getInt("goods_number")),
+                          std::to_string(item.getInt("goods_id"))});
+        }
+
+        // refund any balance paid for this order
+        std::vector<Row> paid = db_->query(
+            "SELECT paid_cents AS paid_cents FROM " + balance_payment_t + " WHERE order_id = ?",
+            {std::to_string(order_id)});
+        if (!paid.empty() && paid.front().getInt("paid_cents") > 0)
+        {
+            int64_t paid_cents = paid.front().getInt("paid_cents");
+            db_->execute("UPDATE " + balance_t +
+                             " SET available_cents = available_cents + ? WHERE user_id = ?",
+                         {std::to_string(paid_cents), std::to_string(user_id)});
+            db_->execute("INSERT INTO " + log_t +
+                             " (user_id, available_delta_cents, frozen_delta_cents, reason,"
+                             " reference_type, reference_id)"
+                             " VALUES (?, ?, 0, 'order cancelled refund', 'order_info', ?)",
+                         {std::to_string(user_id), std::to_string(paid_cents),
+                          std::to_string(order_id)});
+            db_->execute("DELETE FROM " + balance_payment_t + " WHERE order_id = ?",
+                         {std::to_string(order_id)});
+        }
+
+        // order audit (column sets differ per backend)
+        if (sqlite)
+        {
+            db_->execute("INSERT INTO " + action_t +
+                             " (order_id, actor_user_id, action, note) VALUES (?, ?, 'cancel', '')",
+                         {std::to_string(order_id), std::to_string(user_id)});
+        }
+        else
+        {
+            db_->execute("INSERT INTO " + action_t +
+                             " (order_id, actor_type, actor_id, action_note)"
+                             " VALUES (?, 'user', ?, 'cancel')",
+                         {std::to_string(order_id), std::to_string(user_id)});
+        }
+
+        out = rowToOrderSummary(rows.front());
+        out.status = "cancelled";
+        status = domain::OrderCancelStatus::Cancelled;
+    });
+    return status;
+}
+
 } // namespace ecshop::infra
