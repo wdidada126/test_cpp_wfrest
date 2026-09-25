@@ -1,6 +1,7 @@
 #include "ecshop/http/PromotionRoutes.h"
 #include "ecshop/http/HttpUtil.h"
 #include "ecshop/infrastructure/SqlPromotionRepository.h"
+#include "ecshop/infrastructure/SqlTopicRepository.h"
 #include "ecshop/shared/TimeUtil.h"
 
 #include <cstdlib>
@@ -126,6 +127,42 @@ void registerPromotionRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> 
 
         api::send(req, resp,
                   ApiResponse::ok(api::listBody(page, static_cast<int64_t>(all.size()), items)));
+    });
+
+    // GET /api/v1/topics/{id} — topic detail
+    auto topics = std::make_shared<infra::SqlTopicRepository>(db);
+    sv.GET("/api/v1/topics/{id}", [topics](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        int64_t topic_id = 0;
+        if (!api::parsePathId(req, "id", topic_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        std::optional<domain::Topic> topic = topics->find(topic_id);
+        if (!topic)
+        {
+            api::send(req, resp, ApiError::notFound("topic not found"));
+            return;
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("topic_id", topic->topic_id);
+        out.push_back("title", topic->title);
+        out.push_back("intro", topic->intro);
+        out.push_back("start_time", shared::isoUtc(topic->start_time));
+        out.push_back("end_time", shared::isoUtc(topic->end_time));
+        out.push_back("data", topic->data);
+        out.push_back("css", topic->css);
+        out.push_back("topic_img", topic->topic_img);
+        out.push_back("title_pic", topic->title_pic);
+        out.push_back("base_style", topic->base_style);
+        out.push_back("keywords", topic->keywords);
+        out.push_back("description", topic->description);
+        api::send(req, resp, ApiResponse::ok(out));
     });
 }
 
