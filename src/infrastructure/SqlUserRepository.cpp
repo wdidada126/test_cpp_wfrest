@@ -77,6 +77,15 @@ int64_t SqlUserRepository::createUser(const std::string &username, const std::st
     return db_->lastInsertId();
 }
 
+bool SqlUserRepository::updatePasswordIfHashMatches(int64_t user_id,
+                                                    const std::string &expected_hash,
+                                                    const std::string &new_hash)
+{
+    std::string sql = "UPDATE " + db_->table("users") +
+                      " SET password_hash = ? WHERE user_id = ? AND password_hash = ?";
+    return db_->execute(sql, {new_hash, std::to_string(user_id), expected_hash}) > 0;
+}
+
 void SqlUserRepository::createSession(const std::string &token_hash, int64_t user_id)
 {
     std::string sql = "INSERT INTO " + db_->table("sessions") +

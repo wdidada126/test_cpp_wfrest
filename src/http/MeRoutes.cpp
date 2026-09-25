@@ -2,6 +2,7 @@
 #include "ecshop/http/AuthUtil.h"
 #include "ecshop/http/HttpUtil.h"
 #include "ecshop/infrastructure/SqlUserRepository.h"
+#include "ecshop/shared/Password.h"
 #include "ecshop/shared/TimeUtil.h"
 
 #include <cstdlib>
@@ -92,6 +93,80 @@ void registerMeRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         }
 
         api::send(req, resp, ApiResponse::ok(userToJson(*user)));
+    });
+
+    // PATCH /api/v1/me/password — change password, revoke all sessions
+    sv.PATCH("/api/v1/me/password",
+             [users, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string current_password, new_password;
+        if (!api::readStr(body, "current_password", current_password) ||
+            current_password.empty())
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "current_password");
+            api::send(req, resp,
+                      ApiError::validationError("current_password is required", details));
+            return;
+        }
+        if (!api::readStr(body, "new_password", new_password) || new_password.size() < 8 ||
+            new_password.size() > 1024)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "new_password");
+            api::send(req, resp,
+                      ApiError::validationError("new_password must be 8-1024 bytes", details));
+            return;
+        }
+
+        std::optional<std::string> old_hash = users->passwordHashOf(*user_id);
+        if (!old_hash || !shared::verifyPassword(current_password, *old_hash))
+        {
+            api::send(req, resp,
+                      ApiError::conflict("password_conflict", "current password is wrong"));
+            return;
+        }
+
+        std::string new_hash = shared::hashPassword(new_password);
+        bool updated = false;
+        try
+        {
+            db->transaction([&] {
+                updated = users->updatePasswordIfHashMatches(*user_id, *old_hash, new_hash);
+                if (updated)
+                    users->deleteSessionsOfUser(*user_id);
+            });
+        }
+        catch (const infra::DbError &)
+        {
+            api::send(req, resp,
+                      ApiError::conflict("password_conflict", "password changed concurrently"));
+            return;
+        }
+
+        if (!updated)
+        {
+            api::send(req, resp,
+                      ApiError::conflict("password_conflict", "password changed concurrently"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::noContent());
     });
 }
 

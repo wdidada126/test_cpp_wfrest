@@ -25,6 +25,10 @@ public:
     // password hash of the row, for verifyPassword()
     virtual std::optional<std::string> passwordHashOf(int64_t user_id) = 0;
 
+    // atomic compare-and-swap on the stored hash; false when it changed meanwhile
+    virtual bool updatePasswordIfHashMatches(int64_t user_id, const std::string &expected_hash,
+                                             const std::string &new_hash) = 0;
+
     // returns new user id; throws DbError when unique constraints reject it
     virtual int64_t createUser(const std::string &username, const std::string &email,
                                const std::string &password_hash) = 0;
