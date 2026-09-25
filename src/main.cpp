@@ -4,9 +4,9 @@
 #include "ecshop/http/AuthRoutes.h"
 #include "ecshop/http/BookingRoutes.h"
 #include "ecshop/http/CartRoutes.h"
-#include "ecshop/http/CatalogRoutes.h"
 #include "ecshop/http/CheckoutRoutes.h"
 #include "ecshop/http/CommentRoutes.h"
+#include "ecshop/http/ExchangeGoodsRoutes.h"
 #include "ecshop/http/FavoriteRoutes.h"
 #include "ecshop/http/HealthRoutes.h"
 #include "ecshop/http/MeRoutes.h"
@@ -72,6 +72,7 @@ int main(int argc, char **argv)
     ecshop::http::registerPaymentRoutes(sv, db);
     ecshop::http::registerPromotionRoutes(sv, db);
     ecshop::http::registerPackageRoutes(sv, db);
+    ecshop::http::registerExchangeGoodsRoutes(sv, db);
     ecshop::http::registerRegionRoutes(sv, db);
 
     // GET /ping -> pong
