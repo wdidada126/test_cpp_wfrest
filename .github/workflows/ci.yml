@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
@@ -33,11 +33,20 @@ jobs:
             libcurl4-openssl-dev \
             zlib1g-dev
 
+      - name: Build and install wfrest (bundles workflow)
+        run: |
+          git clone --depth 1 --recurse-submodules --shallow-submodules \
+            https://github.com/wfrest/wfrest.git "$RUNNER_TEMP/wfrest"
+          make -C "$RUNNER_TEMP/wfrest" -j"$(nproc)"
+          sudo make -C "$RUNNER_TEMP/wfrest" install
+          test -f /usr/local/lib/cmake/wfrest/wfrest-targets.cmake
+
       - name: Configure CMake
         run: |
           cmake -B build -S . \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CXX_STANDARD=${{ matrix.std }}
+            -DCMAKE_CXX_STANDARD=${{ matrix.std }} \
+            -DWFREST_SOURCE_DIR="$RUNNER_TEMP/wfrest"
 
       - name: Build
         run: |
@@ -47,16 +56,32 @@ jobs:
         run: |
           ./build/wfrest_server 8080 &
           SERVER_PID=$!
-          sleep 3
-          # /ping
+          trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
+
+          for _ in $(seq 1 15); do
+            curl -sf http://127.0.0.1:8080/ping >/dev/null && break
+            sleep 1
+          done
+
           echo "--- /ping ---"
-          curl -sS http://127.0.0.1:8080/ping || true
-          # /json
-          echo -e "\n--- /json ---"
-          curl -sS http://127.0.0.1:8080/json || true
-          # /echo (POST)
-          echo -e "\n--- /echo ---"
-          curl -sS -X POST -d "hello wfrest" http://127.0.0.1:8080/echo || true
-          echo
-          kill $SERVER_PID || true
-          wait $SERVER_PID 2>/dev/null || true
+          curl -sS http://127.0.0.1:8080/ping
+          curl -sS http://127.0.0.1:8080/ping | grep -q pong
+
+          echo "--- /json ---"
+          JSON=$(curl -sS http://127.0.0.1:8080/json)
+          echo "$JSON"
+          echo "$JSON" | grep -q '"message"'
+          echo "$JSON" | grep -q '"status"'
+
+          echo "--- /echo (POST) ---"
+          ECHO=$(curl -sS -X POST -d "hello wfrest" http://127.0.0.1:8080/echo)
+          echo "$ECHO"
+          test "$ECHO" = "hello wfrest"
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: wfrest_server-${{ matrix.os }}-cpp${{ matrix.std }}
+          path: build/wfrest_server
+          if-no-files-found: warn

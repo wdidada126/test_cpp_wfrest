@@ -5,7 +5,8 @@ project(test_cpp_wfrest
 )
 
 # ---- C++ standard ----
-set(CMAKE_CXX_STANDARD 17)
+# CACHE so -DCMAKE_CXX_STANDARD=20 from the CI matrix wins over the default.
+set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard (17 or 20)")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -32,6 +33,15 @@ set(WFREST_SOURCE_DIR "/home/wdidada/git/github/wfrest"
     CACHE PATH "Path to wfrest source tree")
 set(WORKFLOW_INCLUDE_DIR "${WFREST_SOURCE_DIR}/workflow/_include")
 set(WORKFLOW_LIB_DIR      "${WFREST_SOURCE_DIR}/workflow/_lib")
+
+if(NOT EXISTS "${WORKFLOW_INCLUDE_DIR}"
+   OR NOT EXISTS "${WORKFLOW_LIB_DIR}/libworkflow.a")
+    message(FATAL_ERROR
+        "workflow not found under ${WFREST_SOURCE_DIR}/workflow "
+        "(expected _include/ and _lib/libworkflow.a).\n"
+        "Clone https://github.com/wfrest/wfrest.git with submodules, run `make` in it, "
+        "then pass -DWFREST_SOURCE_DIR=<wfrest source dir>.")
+endif()
 
 # ---- Executable ----
 add_executable(wfrest_server
