@@ -67,6 +67,29 @@ void registerPromotionRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> 
 
         api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
     });
+
+    // GET /api/v1/promotions/{id} — one active promotion
+    sv.GET("/api/v1/promotions/{id}", [promotions](const wfrest::HttpReq *req,
+                                                    wfrest::HttpResp *resp)
+    {
+        int64_t act_id = 0;
+        if (!api::parsePathId(req, "id", act_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        std::optional<domain::Promotion> promotion = promotions->findActive(act_id);
+        if (!promotion)
+        {
+            api::send(req, resp, ApiError::notFound("promotion not found"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::ok(promotionToJson(*promotion)));
+    });
 }
 
 } // namespace ecshop::http
