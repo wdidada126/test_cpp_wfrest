@@ -1,9 +1,11 @@
 #include "ecshop/http/MeRoutes.h"
 #include "ecshop/http/AuthUtil.h"
 #include "ecshop/http/HttpUtil.h"
+#include "ecshop/infrastructure/SqlAccountRepository.h"
 #include "ecshop/infrastructure/SqlAccountTokenRepository.h"
 #include "ecshop/infrastructure/SqlBonusRepository.h"
 #include "ecshop/infrastructure/SqlUserRepository.h"
+#include "ecshop/shared/Money.h"
 #include "ecshop/shared/Password.h"
 #include "ecshop/shared/TimeUtil.h"
 
@@ -33,6 +35,7 @@ void registerMeRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
     auto users = std::make_shared<infra::SqlUserRepository>(db);
     auto bonuses = std::make_shared<infra::SqlBonusRepository>(db);
     auto tokens = std::make_shared<infra::SqlAccountTokenRepository>(db);
+    auto account = std::make_shared<infra::SqlAccountRepository>(db);
 
     // GET /api/v1/me — current user profile
     sv.GET("/api/v1/me", [users](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
@@ -336,6 +339,117 @@ void registerMeRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         wfrest::Json::Object out;
         out.push_back("status", "queued");
         api::send(req, resp, ApiResponse::accepted(out));
+    });
+
+    // POST /api/v1/me/account/requests — deposit / withdrawal request
+    sv.POST("/api/v1/me/account/requests",
+            [users, account](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string kind;
+        if (!api::readStr(body, "kind", kind) ||
+            (kind != "deposit" && kind != "withdrawal"))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "kind");
+            api::send(req, resp,
+                      ApiError::validationError("kind must be deposit or withdrawal", details));
+            return;
+        }
+
+        std::string amount_text;
+        int64_t amount_cents = 0;
+        if (!api::readStr(body, "amount", amount_text) ||
+            !shared::Money::parse(amount_text, amount_cents) || amount_cents <= 0)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "amount");
+            api::send(req, resp,
+                      ApiError::validationError("amount must be a positive decimal string",
+                                                details));
+            return;
+        }
+
+        std::string note;
+        if (body.has("note") && !api::readStr(body, "note", note))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "note");
+            api::send(req, resp, ApiError::validationError("note must be a string", details));
+            return;
+        }
+        if (note.size() > 255)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "note");
+            api::send(req, resp, ApiError::validationError("note too long", details));
+            return;
+        }
+
+        int64_t payment_id = 0;
+        if (kind == "deposit")
+        {
+            if (!api::readInt(body, "payment_id", payment_id) || payment_id <= 0)
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "payment_id");
+                api::send(req, resp,
+                          ApiError::validationError("payment_id is required for deposit",
+                                                    details));
+                return;
+            }
+            if (!account->paymentEnabled(payment_id))
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "payment_id");
+                api::send(req, resp,
+                          ApiError::validationError("payment method is not enabled", details));
+                return;
+            }
+        }
+
+        int64_t request_id = 0;
+        std::string status;
+        if (kind == "deposit")
+        {
+            request_id = account->createDepositRequest(*user_id, amount_cents, payment_id, note);
+            status = "pending_payment";
+        }
+        else
+        {
+            if (!account->createWithdrawalRequest(*user_id, amount_cents, note, request_id))
+            {
+                api::send(req, resp,
+                          ApiError::outOfStock("insufficient available balance"));
+                return;
+            }
+            status = "pending_review";
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("id", request_id);
+        out.push_back("kind", kind);
+        out.push_back("amount", shared::Money::format(amount_cents));
+        out.push_back("currency", "CNY");
+        out.push_back("status", status);
+        out.push_back("payment_id", payment_id);
+        out.push_back("note", note);
+        out.push_back("created_at", shared::isoUtc(shared::nowUnix()));
+        api::send(req, resp, ApiResponse::created(out));
     });
 }
 
