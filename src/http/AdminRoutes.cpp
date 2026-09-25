@@ -3,6 +3,7 @@
 #include "ecshop/infrastructure/SqlAdminCategoryRepository.h"
 #include "ecshop/infrastructure/SqlAdminGoodsRepository.h"
 #include "ecshop/infrastructure/SqlAdminOrderRepository.h"
+#include "ecshop/infrastructure/SqlAdminPaymentRepository.h"
 #include "ecshop/infrastructure/SqlAdminRepository.h"
 #include "ecshop/shared/Money.h"
 #include "ecshop/shared/Password.h"
@@ -901,6 +902,322 @@ void registerAdminRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
         admins->writeLog(admin->admin_id, "delete_category", "cat_id=" + std::to_string(cat_id),
                          task_of(resp)->peer_addr());
         api::send(req, resp, ApiResponse::noContent());
+    });
+
+    auto payments = std::make_shared<infra::SqlAdminPaymentRepository>(db);
+    auto shippings = std::make_shared<infra::SqlAdminShippingRepository>(db);
+
+    auto paymentToJson = [](const domain::PaymentOption &item) {
+        wfrest::Json::Object obj;
+        obj.push_back("payment_id", item.payment_id);
+        obj.push_back("name", item.name);
+        obj.push_back("fee", item.fee);
+        return obj;
+    };
+    auto shippingToJson = [](const domain::ShippingOption &item) {
+        wfrest::Json::Object obj;
+        obj.push_back("shipping_id", item.shipping_id);
+        obj.push_back("name", item.name);
+        obj.push_back("fee", item.fee);
+        return obj;
+    };
+
+    // ---- payment methods ----
+
+    sv.GET("/api/v1/admin/payments",
+           [admins, payments, db, paymentToJson](const wfrest::HttpReq *req,
+                                                  wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        std::vector<domain::PaymentOption> all = payments->listAll();
+        wfrest::Json::Array items;
+        for (const domain::PaymentOption &item : all)
+            items.push_back(paymentToJson(item));
+        api::PageQuery page;
+        api::send(req, resp,
+                  ApiResponse::ok(api::listBody(page, static_cast<int64_t>(all.size()), items)));
+    });
+
+    sv.POST("/api/v1/admin/payments",
+            [admins, payments, db, paymentToJson](const wfrest::HttpReq *req,
+                                                   wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        std::string name, fee;
+        if (!api::readStr(body, "name", name) || name.empty() || name.size() > 120)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "name");
+            api::send(req, resp, ApiError::validationError("name must be 1-120 bytes", details));
+            return;
+        }
+        if (!api::readStr(body, "fee", fee))
+            fee = "0.00";
+        bool enabled = true;
+        if (body.has("enabled") && !api::readBool(body, "enabled", enabled))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "enabled");
+            api::send(req, resp, ApiError::validationError("enabled must be a boolean", details));
+            return;
+        }
+        payments->create(name, fee, enabled);
+        domain::PaymentOption item;
+        item.payment_id = db->lastInsertId();
+        item.name = name;
+        item.fee = shared::Money::normalize(fee);
+        admins->writeLog(admin->admin_id, "create_payment", "pay_id=" + std::to_string(item.payment_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, ApiResponse::ok(paymentToJson(item)));
+    });
+
+    sv.PATCH("/api/v1/admin/payments/{id}",
+             [admins, payments, db, paymentToJson](const wfrest::HttpReq *req,
+                                                    wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        int64_t pay_id = 0;
+        if (!api::parsePathId(req, "id", pay_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        std::optional<std::string> name, fee;
+        std::optional<bool> enabled;
+        std::string value;
+        if (body.has("name"))
+        {
+            if (!api::readStr(body, "name", value) || value.empty() || value.size() > 120)
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "name");
+                api::send(req, resp,
+                          ApiError::validationError("name must be 1-120 bytes", details));
+                return;
+            }
+            name = value;
+        }
+        if (body.has("fee"))
+        {
+            if (!api::readStr(body, "fee", value))
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "fee");
+                api::send(req, resp,
+                          ApiError::validationError("fee must be a decimal string", details));
+                return;
+            }
+            fee = value;
+        }
+        if (body.has("enabled"))
+        {
+            bool v = false;
+            if (!api::readBool(body, "enabled", v))
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "enabled");
+                api::send(req, resp,
+                          ApiError::validationError("enabled must be a boolean", details));
+                return;
+            }
+            enabled = v;
+        }
+        if (!payments->patch(pay_id, name, fee, enabled))
+        {
+            api::send(req, resp, ApiError::notFound("payment method not found"));
+            return;
+        }
+        std::optional<domain::PaymentOption> item = payments->find(pay_id);
+        if (!item)
+        {
+            api::send(req, resp, ApiError::notFound("payment method not found"));
+            return;
+        }
+        admins->writeLog(admin->admin_id, "patch_payment", "pay_id=" + std::to_string(pay_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, ApiResponse::ok(paymentToJson(*item)));
+    });
+
+    // ---- shipping methods ----
+
+    sv.GET("/api/v1/admin/shippings",
+           [admins, shippings, db, shippingToJson](const wfrest::HttpReq *req,
+                                                    wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        std::vector<domain::ShippingOption> all = shippings->listAll();
+        wfrest::Json::Array items;
+        for (const domain::ShippingOption &item : all)
+            items.push_back(shippingToJson(item));
+        api::PageQuery page;
+        api::send(req, resp,
+                  ApiResponse::ok(api::listBody(page, static_cast<int64_t>(all.size()), items)));
+    });
+
+    sv.POST("/api/v1/admin/shippings",
+            [admins, shippings, db, shippingToJson](const wfrest::HttpReq *req,
+                                                     wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        std::string name, fee;
+        if (!api::readStr(body, "name", name) || name.empty() || name.size() > 120)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "name");
+            api::send(req, resp, ApiError::validationError("name must be 1-120 bytes", details));
+            return;
+        }
+        if (!api::readStr(body, "fee", fee))
+            fee = "0.00";
+        bool enabled = true;
+        if (body.has("enabled") && !api::readBool(body, "enabled", enabled))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "enabled");
+            api::send(req, resp, ApiError::validationError("enabled must be a boolean", details));
+            return;
+        }
+        shippings->create(name, fee, enabled);
+        domain::ShippingOption item;
+        item.shipping_id = db->lastInsertId();
+        item.name = name;
+        item.fee = shared::Money::normalize(fee);
+        admins->writeLog(admin->admin_id, "create_shipping",
+                         "shipping_id=" + std::to_string(item.shipping_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, ApiResponse::ok(shippingToJson(item)));
+    });
+
+    sv.PATCH("/api/v1/admin/shippings/{id}",
+             [admins, shippings, db, shippingToJson](const wfrest::HttpReq *req,
+                                                      wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        int64_t shipping_id = 0;
+        if (!api::parsePathId(req, "id", shipping_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        std::optional<std::string> name, fee;
+        std::optional<bool> enabled;
+        std::string value;
+        if (body.has("name"))
+        {
+            if (!api::readStr(body, "name", value) || value.empty() || value.size() > 120)
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "name");
+                api::send(req, resp,
+                          ApiError::validationError("name must be 1-120 bytes", details));
+                return;
+            }
+            name = value;
+        }
+        if (body.has("fee"))
+        {
+            if (!api::readStr(body, "fee", value))
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "fee");
+                api::send(req, resp,
+                          ApiError::validationError("fee must be a decimal string", details));
+                return;
+            }
+            fee = value;
+        }
+        if (body.has("enabled"))
+        {
+            bool v = false;
+            if (!api::readBool(body, "enabled", v))
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "enabled");
+                api::send(req, resp,
+                          ApiError::validationError("enabled must be a boolean", details));
+                return;
+            }
+            enabled = v;
+        }
+        if (!shippings->patch(shipping_id, name, fee, enabled))
+        {
+            api::send(req, resp, ApiError::notFound("shipping method not found"));
+            return;
+        }
+        std::optional<domain::ShippingOption> item = shippings->find(shipping_id);
+        if (!item)
+        {
+            api::send(req, resp, ApiError::notFound("shipping method not found"));
+            return;
+        }
+        admins->writeLog(admin->admin_id, "patch_shipping",
+                         "shipping_id=" + std::to_string(shipping_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, ApiResponse::ok(shippingToJson(*item)));
     });
 }
 
