@@ -1,0 +1,10 @@
+#pragma once
+
+// Generated from docs/sql/sqlite/001_ecshop_catalog.sql at configure time.
+namespace ecshop::infra {
+
+inline constexpr const char *kSqliteSchemaSql = R"ECSSQL(
+@ECSHOP_SQLITE_SCHEMA_SQL@
+)ECSSQL";
+
+} // namespace ecshop::infra

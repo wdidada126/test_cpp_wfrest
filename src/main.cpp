@@ -1,3 +1,6 @@
+#include "ecshop/app/AppConfig.h"
+#include "ecshop/infrastructure/db/DbFactory.h"
+
 #include "wfrest/HttpServer.h"
 #include "wfrest/Json.h"
 #include <signal.h>
@@ -15,6 +18,19 @@ static void sig_handler(int signo)
 
 int main(int argc, char **argv)
 {
+    ecshop::app::AppConfig cfg = ecshop::app::AppConfig::fromEnv();
+
+    std::shared_ptr<ecshop::infra::Db> db;
+    try
+    {
+        db = ecshop::infra::openDb(cfg);
+    }
+    catch (const std::exception &e)
+    {
+        fprintf(stderr, "failed to open database: %s\n", e.what());
+        return 1;
+    }
+
     HttpServer sv;
 
     // GET /ping -> pong
