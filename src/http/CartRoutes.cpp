@@ -174,6 +174,36 @@ void registerCartRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 
         api::send(req, resp, ApiResponse::noContent());
     });
+
+    // DELETE /api/v1/me/cart/{id}
+    sv.DELETE("/api/v1/me/cart/{id}", [users, cart](const wfrest::HttpReq *req,
+                                                     wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t rec_id = 0;
+        if (!api::parsePathId(req, "id", rec_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        if (!cart->remove(*user_id, rec_id))
+        {
+            api::send(req, resp, ApiError::notFound("cart item not found"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::noContent());
+    });
 }
 
 } // namespace ecshop::http
