@@ -1,4 +1,5 @@
 #include "ecshop/app/AppConfig.h"
+#include "ecshop/http/AddressRoutes.h"
 #include "ecshop/http/ArticleRoutes.h"
 #include "ecshop/http/AuthRoutes.h"
 #include "ecshop/http/CatalogRoutes.h"
@@ -44,6 +45,7 @@ int main(int argc, char **argv)
     ecshop::http::registerArticleRoutes(sv, db);
     ecshop::http::registerAuthRoutes(sv, db);
     ecshop::http::registerMeRoutes(sv, db);
+    ecshop::http::registerAddressRoutes(sv, db);
     ecshop::http::registerRegionRoutes(sv, db);
 
     // GET /ping -> pong

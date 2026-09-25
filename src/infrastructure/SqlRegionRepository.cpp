@@ -45,4 +45,22 @@ domain::RegionPage SqlRegionRepository::listRegions(int64_t parent_id, int64_t r
     return page;
 }
 
+std::optional<domain::Region> SqlRegionRepository::find(int64_t region_id)
+{
+    std::string sql =
+        "SELECT region_id AS region_id, parent_id AS parent_id,"
+        " region_name AS region_name, region_type AS region_type FROM " + db_->table("region") +
+        " WHERE region_id = ?";
+    std::vector<Row> rows = db_->query(sql, {std::to_string(region_id)});
+    if (rows.empty())
+        return std::nullopt;
+
+    domain::Region item;
+    item.region_id = rows.front().getInt("region_id");
+    item.parent_id = rows.front().getInt("parent_id");
+    item.name = rows.front().get("region_name");
+    item.region_type = rows.front().getInt("region_type");
+    return item;
+}
+
 } // namespace ecshop::infra

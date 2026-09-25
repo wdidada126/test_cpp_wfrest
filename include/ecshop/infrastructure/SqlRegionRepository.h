@@ -12,6 +12,7 @@ public:
 
     domain::RegionPage listRegions(int64_t parent_id, int64_t region_type,
                                    int64_t offset, int64_t limit) override;
+    std::optional<domain::Region> find(int64_t region_id) override;
 
 private:
     std::shared_ptr<Db> db_;
