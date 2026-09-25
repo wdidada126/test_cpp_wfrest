@@ -15,4 +15,7 @@ std::string randomTokenHex(size_t bytes = 32);
 // SHA-256 of text as lowercase hex; sessions/tokens store only this.
 std::string sha256Hex(const std::string &text);
 
+// HMAC-SHA256 of text with key, lowercase hex (payment callbacks use this)
+std::string hmacSha256Hex(const std::string &key, const std::string &text);
+
 } // namespace ecshop::shared
