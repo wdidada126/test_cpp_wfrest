@@ -8,6 +8,7 @@
 #include "ecshop/http/HealthRoutes.h"
 #include "ecshop/http/MeRoutes.h"
 #include "ecshop/http/RegionRoutes.h"
+#include "ecshop/http/TagRoutes.h"
 #include "ecshop/infrastructure/db/DbFactory.h"
 
 #include "wfrest/HttpServer.h"
@@ -50,6 +51,7 @@ int main(int argc, char **argv)
     ecshop::http::registerAddressRoutes(sv, db);
     ecshop::http::registerFavoriteRoutes(sv, db);
     ecshop::http::registerCartRoutes(sv, db);
+    ecshop::http::registerTagRoutes(sv, db);
     ecshop::http::registerRegionRoutes(sv, db);
 
     // GET /ping -> pong
