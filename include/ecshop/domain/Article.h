@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace ecshop::domain {
 
@@ -23,6 +24,12 @@ struct Article
     std::string content;
     std::string keywords;
     bool is_open = false;
+};
+
+struct ArticlePage
+{
+    int64_t total = 0;
+    std::vector<ArticleSummary> items;
 };
 
 } // namespace ecshop::domain

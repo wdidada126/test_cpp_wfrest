@@ -48,4 +48,43 @@ std::vector<domain::ArticleSummary> SqlArticleRepository::listLatestOpen(int64_t
     return items;
 }
 
+bool SqlArticleRepository::categoryVisible(int64_t cat_id)
+{
+    std::string sql = "SELECT cat_id AS cat_id FROM " + db_->table("article_cat") +
+                      " WHERE cat_id = ? AND is_show = 1";
+    return !db_->query(sql, {std::to_string(cat_id)}).empty();
+}
+
+domain::ArticlePage SqlArticleRepository::listCategoryArticles(int64_t cat_id, int64_t offset,
+                                                               int64_t limit)
+{
+    const std::string article_t = db_->table("article");
+
+    domain::ArticlePage page;
+    std::string count_sql = "SELECT COUNT(*) AS total FROM " + article_t +
+                            " WHERE cat_id = ? AND is_open = 1";
+    std::vector<Row> counts = db_->query(count_sql, {std::to_string(cat_id)});
+    if (!counts.empty())
+        page.total = counts.front().getInt("total");
+
+    // limit/offset are validated integers formatted by us; user data stays bound.
+    std::string sql =
+        "SELECT article_id AS article_id, title AS title, author AS author,"
+        " article_desc AS article_desc FROM " + article_t +
+        " WHERE cat_id = ? AND is_open = 1"
+        " ORDER BY article_id DESC LIMIT " + std::to_string(limit) +
+        " OFFSET " + std::to_string(offset);
+
+    for (const Row &row : db_->query(sql, {std::to_string(cat_id)}))
+    {
+        domain::ArticleSummary item;
+        item.article_id = row.getInt("article_id");
+        item.title = row.get("title");
+        item.author = row.get("author");
+        item.description = row.get("article_desc");
+        page.items.push_back(std::move(item));
+    }
+    return page;
+}
+
 } // namespace ecshop::infra
