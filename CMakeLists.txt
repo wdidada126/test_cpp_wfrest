@@ -125,6 +125,7 @@ set(ECSHOP_SOURCES
     src/http/BookingRoutes.cpp
     src/http/CheckoutRoutes.cpp
     src/http/OrderRoutes.cpp
+    src/http/CommentRoutes.cpp
     src/http/HttpUtil.cpp
     src/http/HealthRoutes.cpp
     src/http/CatalogRoutes.cpp
@@ -144,6 +145,7 @@ set(ECSHOP_SOURCES
     src/infrastructure/SqlBookingRepository.cpp
     src/infrastructure/SqlCheckoutRepository.cpp
     src/infrastructure/SqlOrderRepository.cpp
+    src/infrastructure/SqlCommentRepository.cpp
 )
 
 add_executable(wfrest_server ${ECSHOP_SOURCES})
