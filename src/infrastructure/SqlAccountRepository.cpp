@@ -131,4 +131,57 @@ domain::AccountRequestPage SqlAccountRepository::listRequests(int64_t user_id, i
     return page;
 }
 
+bool SqlAccountRepository::cancelRequest(int64_t user_id, int64_t request_id)
+{
+    std::string account_t = db_->table("user_account");
+    std::string balance_t = db_->table("account_balance");
+    std::string log_t = db_->table("account_log");
+
+    bool ok = false;
+    db_->transaction([&] {
+        std::vector<Row> rows = db_->query(
+            "SELECT amount_cents AS amount_cents, process_type AS process_type, status AS status"
+            " FROM " + account_t + " WHERE rec_id = ? AND user_id = ?",
+            {std::to_string(request_id), std::to_string(user_id)});
+        if (rows.empty())
+            return;
+
+        const Row &row = rows.front();
+        std::string kind = row.get("process_type");
+        std::string status = row.get("status");
+        int64_t amount_cents = row.getInt("amount_cents");
+
+        bool cancellable =
+            (kind == "deposit" && status == "pending_payment") ||
+            (kind == "withdrawal" && status == "pending_review");
+        if (!cancellable)
+            return;
+
+        if (kind == "withdrawal")
+        {
+            int64_t changed = db_->execute(
+                "UPDATE " + balance_t +
+                    " SET available_cents = available_cents + ?,"
+                    " frozen_cents = frozen_cents - ?"
+                    " WHERE user_id = ? AND frozen_cents >= ?",
+                {std::to_string(amount_cents), std::to_string(amount_cents),
+                 std::to_string(user_id), std::to_string(amount_cents)});
+            if (changed == 0)
+                return;
+
+            db_->execute("INSERT INTO " + log_t +
+                             " (user_id, available_delta_cents, frozen_delta_cents, reason,"
+                             " reference_type, reference_id)"
+                             " VALUES (?, ?, ?, 'withdrawal cancelled', 'user_account', ?)",
+                         {std::to_string(user_id), std::to_string(amount_cents),
+                          std::to_string(-amount_cents), std::to_string(request_id)});
+        }
+
+        db_->execute("DELETE FROM " + account_t + " WHERE rec_id = ? AND user_id = ?",
+                     {std::to_string(request_id), std::to_string(user_id)});
+        ok = true;
+    });
+    return ok;
+}
+
 } // namespace ecshop::infra

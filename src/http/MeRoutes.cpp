@@ -498,6 +498,36 @@ void registerMeRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         out.push_back("frozen_balance", result.balance.frozen);
         api::send(req, resp, ApiResponse::ok(out));
     });
+
+    // DELETE /api/v1/me/account/requests/{id} — cancel an unprocessed request
+    sv.DELETE("/api/v1/me/account/requests/{id}",
+              [users, account](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t request_id = 0;
+        if (!api::parsePathId(req, "id", request_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        if (!account->cancelRequest(*user_id, request_id))
+        {
+            api::send(req, resp, ApiError::notFound("request not found or not cancellable"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::noContent());
+    });
 }
 
 } // namespace ecshop::http

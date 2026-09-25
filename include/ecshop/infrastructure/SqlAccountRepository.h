@@ -19,6 +19,7 @@ public:
     domain::Balance balanceOf(int64_t user_id) override;
     domain::AccountRequestPage listRequests(int64_t user_id, int64_t offset,
                                             int64_t limit) override;
+    bool cancelRequest(int64_t user_id, int64_t request_id) override;
 
 private:
     std::shared_ptr<Db> db_;
