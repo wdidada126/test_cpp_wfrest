@@ -2,10 +2,13 @@
 #include "ecshop/http/HttpUtil.h"
 #include "ecshop/infrastructure/SqlPromotionRepository.h"
 #include "ecshop/infrastructure/SqlTopicRepository.h"
+#include "ecshop/infrastructure/SqlVoteRepository.h"
 #include "ecshop/shared/TimeUtil.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <optional>
+#include <string>
 
 namespace ecshop::http {
 
@@ -163,6 +166,127 @@ void registerPromotionRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> 
         out.push_back("keywords", topic->keywords);
         out.push_back("description", topic->description);
         api::send(req, resp, ApiResponse::ok(out));
+    });
+
+    // GET /api/v1/votes/current — current vote with option counts
+    auto votes = std::make_shared<infra::SqlVoteRepository>(db);
+    sv.GET("/api/v1/votes/current", [votes](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        std::optional<domain::Vote> vote = votes->findCurrent();
+        if (!vote)
+        {
+            api::send(req, resp, ApiError::notFound("no active vote"));
+            return;
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("vote_id", vote->vote_id);
+        out.push_back("name", vote->name);
+        out.push_back("start_time", shared::isoUtc(vote->start_time));
+        out.push_back("end_time", shared::isoUtc(vote->end_time));
+        out.push_back("can_multi", vote->can_multi);
+        out.push_back("total_count", vote->total_count);
+
+        wfrest::Json::Array options;
+        for (const domain::VoteOption &option : vote->options)
+        {
+            wfrest::Json::Object it;
+            it.push_back("option_id", option.option_id);
+            it.push_back("name", option.name);
+            it.push_back("count", option.count);
+            options.push_back(it);
+        }
+        out.push_back("options", options);
+        api::send(req, resp, ApiResponse::ok(out));
+    });
+
+    // POST /api/v1/votes/{id}/responses — {"option_ids":[1]}
+    sv.POST("/api/v1/votes/{id}/responses",
+            [votes](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        int64_t vote_id = 0;
+        if (!api::parsePathId(req, "id", vote_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp,
+                      ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        wfrest::Json body;
+        api::ApiResponse err;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        if (!body.has("option_ids"))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "option_ids");
+            api::send(req, resp, ApiError::validationError("option_ids is required", details));
+            return;
+        }
+
+        wfrest::Json arr = body["option_ids"];
+        if (!arr.is_array())
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "option_ids");
+            api::send(req, resp,
+                      ApiError::validationError("option_ids must be an array", details));
+            return;
+        }
+
+        std::vector<int64_t> option_ids;
+        for (size_t i = 0; i < arr.size(); ++i)
+        {
+            wfrest::Json v = arr[static_cast<int>(i)];
+            if (!v.is_number())
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "option_ids");
+                api::send(req, resp,
+                          ApiError::validationError("option_ids must be integers", details));
+                return;
+            }
+            option_ids.push_back(static_cast<int64_t>(v.get<double>()));
+        }
+
+        // client IP straight from the socket, never from forwarding headers
+        std::string ip = task_of(resp)->peer_addr();
+
+        domain::VoteResponseStatus status =
+            votes->recordResponse(vote_id, ip, option_ids);
+        switch (status)
+        {
+        case domain::VoteResponseStatus::Recorded:
+        {
+            wfrest::Json::Object out;
+            out.push_back("vote_id", vote_id);
+            wfrest::Json::Array ids;
+            for (int64_t option_id : option_ids)
+                ids.push_back(option_id);
+            out.push_back("option_ids", ids);
+            api::send(req, resp, ApiResponse::created(out));
+            return;
+        }
+        case domain::VoteResponseStatus::DuplicateIp:
+            api::send(req, resp,
+                      ApiError::conflict("vote_duplicate", "this address already voted"));
+            return;
+        case domain::VoteResponseStatus::InvalidOptions:
+            api::send(req, resp,
+                      ApiError::validationError("options invalid for this vote"));
+            return;
+        case domain::VoteResponseStatus::VoteClosed:
+        case domain::VoteResponseStatus::VoteNotFound:
+        default:
+            api::send(req, resp, ApiError::notFound("vote not found"));
+            return;
+        }
     });
 }
 
