@@ -1,6 +1,8 @@
 #include "ecshop/http/AdminRoutes.h"
 #include "ecshop/http/HttpUtil.h"
+#include "ecshop/infrastructure/SqlAdminGoodsRepository.h"
 #include "ecshop/infrastructure/SqlAdminRepository.h"
+#include "ecshop/shared/Money.h"
 #include "ecshop/shared/Password.h"
 #include "ecshop/shared/TimeUtil.h"
 
@@ -45,6 +47,28 @@ std::optional<domain::AdminUser> adminAuth(
 }
 
 } // namespace
+
+static wfrest::Json adminGoodsToJson(const domain::AdminGoodsRow &goods)
+{
+    wfrest::Json::Object obj;
+    obj.push_back("goods_id", goods.goods_id);
+    obj.push_back("goods_sn", goods.goods_sn);
+    obj.push_back("name", goods.name);
+    obj.push_back("brief", goods.brief);
+    obj.push_back("price", goods.price);
+    obj.push_back("market_price", goods.market_price);
+    obj.push_back("currency", "CNY");
+    obj.push_back("stock", goods.stock);
+    obj.push_back("cat_id", goods.cat_id);
+    obj.push_back("brand_id", goods.brand_id);
+    obj.push_back("is_on_sale", goods.is_on_sale);
+    obj.push_back("is_delete", goods.is_delete);
+    obj.push_back("is_best", goods.is_best);
+    obj.push_back("is_new", goods.is_new);
+    obj.push_back("is_hot", goods.is_hot);
+    obj.push_back("is_promote", goods.is_promote);
+    return obj;
+}
 
 void registerAdminRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
                          const app::AppConfig &cfg)
@@ -142,6 +166,36 @@ void registerAdminRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
         out.push_back("username", admin->username);
         out.push_back("role", admin->role);
         api::send(req, resp, ApiResponse::ok(out));
+    });
+
+    auto goods = std::make_shared<infra::SqlAdminGoodsRepository>(db);
+
+    // GET /api/v1/admin/goods?q=&page=&page_size= — all goods, unfiltered
+    sv.GET("/api/v1/admin/goods",
+           [admins, goods](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        api::PageQuery page;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        domain::AdminGoodsPage result = goods->list(req->query("q"), page.offset(), page.page_size);
+
+        wfrest::Json::Array items;
+        for (const domain::AdminGoodsRow &row : result.items)
+            items.push_back(adminGoodsToJson(row));
+
+        api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
     });
 }
 
