@@ -93,7 +93,17 @@ MessagePage SqlMessageRepository::listOfUser(int64_t user_id, int64_t offset, in
         " OFFSET " + std::to_string(offset);
 
     for (const Row &row : db_->query(sql, {std::to_string(user_id)}))
-        page.items.push_back(rowToMessage(row));
+    {
+        Message message = rowToMessage(row);
+        if (std::optional<Message> reply = firstReply(message.msg_id))
+        {
+            message.has_reply = true;
+            message.reply_username = reply->username;
+            message.reply_content = reply->content;
+            message.reply_time = reply->created_at;
+        }
+        page.items.push_back(std::move(message));
+    }
     return page;
 }
 

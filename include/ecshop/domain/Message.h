@@ -18,6 +18,12 @@ struct Message
     int64_t type = 0;
     int64_t order_id = 0;
     std::string created_at; // unix seconds as text
+
+    // /me/messages carries the first admin/customer-service reply (if any)
+    bool has_reply = false;
+    std::string reply_username;
+    std::string reply_content;
+    std::string reply_time; // unix seconds as text
 };
 
 struct MessagePage

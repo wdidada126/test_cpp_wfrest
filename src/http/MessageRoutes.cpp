@@ -152,6 +152,54 @@ void registerMessageRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
         out.push_back("content", content);
         api::send(req, resp, ApiResponse::created(out));
     });
+
+    // GET /api/v1/me/messages — own top-level messages + first reply
+    sv.GET("/api/v1/me/messages",
+           [users, messages](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        api::PageQuery page;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        domain::MessagePage result =
+            messages->listOfUser(*user_id, page.offset(), page.page_size);
+
+        wfrest::Json::Array items;
+        for (const domain::Message &message : result.items)
+        {
+            wfrest::Json::Object item;
+            item.push_back("msg_id", message.msg_id);
+            item.push_back("title", message.title);
+            item.push_back("content", message.content);
+            item.push_back("order_id", message.order_id);
+            item.push_back("created_at",
+                           shared::isoUtc(std::strtoll(message.created_at.c_str(), nullptr, 10)));
+
+            if (message.has_reply)
+            {
+                wfrest::Json::Object reply;
+                reply.push_back("username", message.reply_username);
+                reply.push_back("content", message.reply_content);
+                reply.push_back("created_at",
+                                shared::isoUtc(std::strtoll(message.reply_time.c_str(), nullptr, 10)));
+                item.push_back("reply", reply);
+            }
+            items.push_back(item);
+        }
+
+        api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
+    });
 }
 
 } // namespace ecshop::http
