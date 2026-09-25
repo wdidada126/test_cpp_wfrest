@@ -52,6 +52,106 @@ void registerMessageRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
 
         api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
     });
+
+    // POST /api/v1/messages — anonymous or logged-in board message
+    sv.POST("/api/v1/messages",
+            [users, messages](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        wfrest::Json body;
+        api::ApiResponse err;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string content;
+        if (!api::readStr(body, "content", content) || content.empty() || content.size() > 2000)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "content");
+            api::send(req, resp,
+                      ApiError::validationError("content must be 1-2000 bytes", details));
+            return;
+        }
+
+        // optional Bearer token binds the message to the current session
+        int64_t user_id = 0;
+        std::string default_username;
+        std::optional<int64_t> session_user = api::authenticate(req, users, err);
+        if (session_user)
+        {
+            user_id = *session_user;
+            std::optional<domain::User> user = users->findById(user_id);
+            if (!user)
+            {
+                api::send(req, resp, ApiError::unauthenticated("invalid or expired session"));
+                return;
+            }
+            default_username = user->username;
+        }
+
+        std::string username, email, title;
+        bool anonymous = false;
+        api::readBool(body, "anonymous", anonymous);
+
+        if (anonymous)
+        {
+            username = "anonymous";
+        }
+        else if (user_id > 0)
+        {
+            username = default_username;
+        }
+
+        if (body.has("username") &&
+            (!api::readStr(body, "username", username) || username.size() > 60))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "username");
+            api::send(req, resp,
+                      ApiError::validationError("username must be at most 60 bytes", details));
+            return;
+        }
+        if (username.empty())
+            username = "anonymous";
+
+        if (body.has("email") && (!api::readStr(body, "email", email) || email.size() > 60))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "email");
+            api::send(req, resp,
+                      ApiError::validationError("email must be at most 60 bytes", details));
+            return;
+        }
+
+        if (body.has("title") && (!api::readStr(body, "title", title) || title.size() > 200))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "title");
+            api::send(req, resp,
+                      ApiError::validationError("title must be at most 200 bytes", details));
+            return;
+        }
+
+        int64_t type = 0;
+        if (body.has("type") && !api::readInt(body, "type", type))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "type");
+            api::send(req, resp, ApiError::validationError("type must be an integer", details));
+            return;
+        }
+
+        messages->add(user_id, username, email, type, title.empty() ? std::string("咨询") : title,
+                      content);
+
+        wfrest::Json::Object out;
+        out.push_back("username", username);
+        out.push_back("title", title.empty() ? std::string("咨询") : title);
+        out.push_back("content", content);
+        api::send(req, resp, ApiResponse::created(out));
+    });
 }
 
 } // namespace ecshop::http
