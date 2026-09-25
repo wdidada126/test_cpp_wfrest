@@ -199,7 +199,7 @@ std::string MysqlDb::datetimeFromUnix(int64_t unix_seconds) const
     gmtime_r(&t, &tm_utc);
 #endif
 
-    char buf[24];
+    char buf[40];
     std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
                   tm_utc.tm_year + 1900, tm_utc.tm_mon + 1, tm_utc.tm_mday,
                   tm_utc.tm_hour, tm_utc.tm_min, tm_utc.tm_sec);
