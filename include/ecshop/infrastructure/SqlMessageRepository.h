@@ -7,6 +7,8 @@
 #include "ecshop/domain/Message.h"
 #include "ecshop/infrastructure/db/Db.h"
 
+#include <memory>
+
 namespace ecshop::infra {
 
 class SqlMessageRepository : public domain::MessageRepository

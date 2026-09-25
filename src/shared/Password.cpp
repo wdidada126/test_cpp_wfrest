@@ -1,6 +1,7 @@
 #include "ecshop/shared/Password.h"
 
 #include <openssl/evp.h>
+#include <openssl/hmac.h>
 #include <openssl/rand.h>
 
 #include <cstdio>
@@ -112,6 +113,17 @@ std::string sha256Hex(const std::string &text)
     unsigned int len = 0;
     if (EVP_Digest(text.c_str(), text.size(), hash, &len, EVP_sha256(), nullptr) != 1)
         throw std::runtime_error("SHA256 failed");
+    return toHex(hash, len);
+}
+
+std::string hmacSha256Hex(const std::string &key, const std::string &text)
+{
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int len = 0;
+    if (HMAC(EVP_sha256(), key.c_str(), static_cast<int>(key.size()),
+             reinterpret_cast<const unsigned char *>(text.c_str()), text.size(), hash,
+             &len) == nullptr)
+        throw std::runtime_error("HMAC failed");
     return toHex(hash, len);
 }
 

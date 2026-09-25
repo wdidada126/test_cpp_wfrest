@@ -3,6 +3,8 @@
 #include "ecshop/domain/NewsletterRepository.h"
 #include "ecshop/infrastructure/db/Db.h"
 
+#include <memory>
+
 namespace ecshop::infra {
 
 class SqlNewsletterRepository : public domain::NewsletterRepository
