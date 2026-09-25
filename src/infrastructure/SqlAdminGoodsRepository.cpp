@@ -88,8 +88,8 @@ int64_t SqlAdminGoodsRepository::create(const AdminGoodsRow &goods,
         " (cat_id, brand_id, goods_sn, goods_name, goods_brief, goods_desc,"
         " shop_price, market_price, goods_number, is_on_sale)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-    db_->execute(sql, {std::to_string(goods.cat_id), std::to_string(goods.brand_id), goods.name,
-                       goods.brief, description, goods.price, goods.market_price,
+    db_->execute(sql, {std::to_string(goods.cat_id), std::to_string(goods.brand_id), goods.goods_sn,
+                       goods.name, goods.brief, description, goods.price, goods.market_price,
                        std::to_string(goods.stock), goods.is_on_sale ? "1" : "0"});
     return db_->lastInsertId();
 }
@@ -134,8 +134,9 @@ bool SqlAdminGoodsRepository::patch(int64_t goods_id, const domain::AdminGoodsPa
         append("is_promote", *patch.is_promote ? "1" : "0");
 
     if (set_sql.empty())
-        return !find(goods_id) ? false : true;
+        return find(goods_id).has_value();
 
+    params.push_back(std::to_string(goods_id));
     return db_->execute("UPDATE " + db_->table("goods") + " SET " + set_sql +
                             " WHERE goods_id = ?",
                         params) > 0;
