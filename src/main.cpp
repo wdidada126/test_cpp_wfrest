@@ -1,4 +1,5 @@
 #include "ecshop/app/AppConfig.h"
+#include "ecshop/http/HealthRoutes.h"
 #include "ecshop/infrastructure/db/DbFactory.h"
 
 #include "wfrest/HttpServer.h"
@@ -32,6 +33,8 @@ int main(int argc, char **argv)
     }
 
     HttpServer sv;
+
+    ecshop::http::registerHealthRoutes(sv, db);
 
     // GET /ping -> pong
     sv.GET("/ping", [](const HttpReq *req, HttpResp *resp)

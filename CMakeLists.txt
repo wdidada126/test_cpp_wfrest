@@ -115,6 +115,7 @@ set(ECSHOP_SOURCES
     src/infrastructure/db/DbFactory.cpp
     src/http/ApiError.cpp
     src/http/HttpUtil.cpp
+    src/http/HealthRoutes.cpp
 )
 
 add_executable(wfrest_server ${ECSHOP_SOURCES})
