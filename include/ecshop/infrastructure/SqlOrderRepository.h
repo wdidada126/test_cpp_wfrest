@@ -18,6 +18,8 @@ public:
     std::optional<domain::OrderDetail> findOfUser(int64_t user_id, int64_t order_id) override;
     domain::OrderCancelStatus cancelOfUser(int64_t user_id, int64_t order_id,
                                            domain::OrderSummary &out) override;
+    domain::OrderCancelStatus receivedOfUser(int64_t user_id, int64_t order_id,
+                                             domain::OrderSummary &out) override;
 
 private:
     std::string makeOrderSn();

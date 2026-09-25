@@ -379,4 +379,61 @@ domain::OrderCancelStatus SqlOrderRepository::cancelOfUser(int64_t user_id, int6
     return status;
 }
 
+domain::OrderCancelStatus SqlOrderRepository::receivedOfUser(int64_t user_id, int64_t order_id,
+                                                             OrderSummary &out)
+{
+    const std::string order_t = db_->table("order_info");
+    const std::string action_t = db_->table("order_action");
+    bool sqlite = std::string(db_->driverName()) == "sqlite";
+
+    domain::OrderCancelStatus status = domain::OrderCancelStatus::NotFound;
+
+    db_->transaction([&] {
+        std::string order_time = db_->orderTimeCol();
+        std::string summary_cols =
+            "order_id AS order_id, order_sn AS order_sn, order_status AS order_status,"
+            " goods_amount AS goods_amount, shipping_fee AS shipping_fee,"
+            " payment_fee AS payment_fee, order_amount AS order_amount," +
+            db_->toUnix(order_time) + " AS created_at";
+
+        std::vector<Row> rows = db_->query(
+            "SELECT " + summary_cols + " FROM " + order_t +
+                " WHERE order_id = ? AND user_id = ?",
+            {std::to_string(order_id), std::to_string(user_id)});
+        if (rows.empty())
+            return;
+
+        int64_t flipped = db_->execute(
+            "UPDATE " + order_t +
+                " SET order_status = 'received' WHERE order_id = ? AND user_id = ?"
+                " AND order_status = 'paid'",
+            {std::to_string(order_id), std::to_string(user_id)});
+        if (flipped == 0)
+        {
+            status = domain::OrderCancelStatus::InvalidState;
+            return;
+        }
+
+        if (sqlite)
+        {
+            db_->execute("INSERT INTO " + action_t +
+                             " (order_id, actor_user_id, action, note)"
+                             " VALUES (?, ?, 'received', '')",
+                         {std::to_string(order_id), std::to_string(user_id)});
+        }
+        else
+        {
+            db_->execute("INSERT INTO " + action_t +
+                             " (order_id, actor_type, actor_id, action_note)"
+                             " VALUES (?, 'user', ?, 'received')",
+                         {std::to_string(order_id), std::to_string(user_id)});
+        }
+
+        out = rowToOrderSummary(rows.front());
+        out.status = "received";
+        status = domain::OrderCancelStatus::Cancelled;
+    });
+    return status;
+}
+
 } // namespace ecshop::infra

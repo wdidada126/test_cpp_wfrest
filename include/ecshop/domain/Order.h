@@ -91,6 +91,10 @@ public:
     // writes order/account audits in one transaction
     virtual OrderCancelStatus cancelOfUser(int64_t user_id, int64_t order_id,
                                            OrderSummary &out) = 0;
+
+    // confirm receipt: paid -> received with an audit row
+    virtual OrderCancelStatus receivedOfUser(int64_t user_id, int64_t order_id,
+                                             OrderSummary &out) = 0;
 };
 
 } // namespace ecshop::domain
