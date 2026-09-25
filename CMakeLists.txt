@@ -14,29 +14,42 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-# ---- Options ----
-option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
-
-# ---- FetchContent: pull in wfrest (and its dependency workflow) ----
-include(FetchContent)
-
-FetchContent_Declare(
-    wfrest
-    GIT_REPOSITORY https://github.com/WFerns/wfrest.git
-    GIT_TAG        main
+# ---- Find installed wfrest (installed to /usr/local via make install) ----
+# wfrest's installed config file has a bug (doesn't include targets),
+# so we find the targets file directly.
+find_path(WFREST_CMAKE_DIR wfrest-targets.cmake
+    PATHS /usr/local/lib/cmake/wfrest
+          ${CMAKE_INSTALL_PREFIX}/lib/cmake/wfrest
 )
+if(NOT WFREST_CMAKE_DIR)
+    message(FATAL_ERROR "wfrest-targets.cmake not found. Is wfrest installed?")
+endif()
+include("${WFREST_CMAKE_DIR}/wfrest-targets.cmake")
 
-# wfrest builds workflow internally via its own CMake,
-# so we only need to fetch wfrest.
-FetchContent_MakeAvailable(wfrest)
+# ---- Workflow dependency (bundled in wfrest source tree, not installed) ----
+# workflow headers and libs live inside the wfrest source directory.
+set(WFREST_SOURCE_DIR "/home/wdidada/git/github/wfrest"
+    CACHE PATH "Path to wfrest source tree")
+set(WORKFLOW_INCLUDE_DIR "${WFREST_SOURCE_DIR}/workflow/_include")
+set(WORKFLOW_LIB_DIR      "${WFREST_SOURCE_DIR}/workflow/_lib")
 
 # ---- Executable ----
 add_executable(wfrest_server
     src/main.cpp
 )
 
-# Link against wfrest's CMake target (also brings in workflow transitively)
-target_link_libraries(wfrest_server PRIVATE wfrest)
+target_include_directories(wfrest_server PRIVATE ${WORKFLOW_INCLUDE_DIR})
+
+# Link wfrest + workflow + pthread
+target_link_libraries(wfrest_server PRIVATE
+    wfrest
+    ${WORKFLOW_LIB_DIR}/libworkflow.a
+    pthread
+    dl
+    ssl
+    crypto
+    z
+)
 
 # ---- Install ----
 install(TARGETS wfrest_server

@@ -5,9 +5,12 @@
 
 using namespace wfrest;
 
+static HttpServer *g_sv = nullptr;
+
 static void sig_handler(int signo)
 {
-    kill(getpid(), SIGTERM);
+    if (g_sv)
+        g_sv->stop();
 }
 
 int main(int argc, char **argv)
@@ -17,8 +20,7 @@ int main(int argc, char **argv)
     // GET /ping -> pong
     sv.GET("/ping", [](const HttpReq *req, HttpResp *resp)
     {
-        resp->set_status(HttpStatusOK);
-        resp->set_content("pong\n", "text/plain");
+        resp->String("pong\n");
     });
 
     // GET /json -> JSON response
@@ -27,23 +29,23 @@ int main(int argc, char **argv)
         Json json;
         json["message"] = "Hello, wfrest!";
         json["status"]  = "ok";
-        resp->set_status(HttpStatusOK);
-        resp->set_content(json.dump(), "application/json");
+        resp->Json(json);
     });
 
     // POST /echo -> echo back POST body
     sv.POST("/echo", [](const HttpReq *req, HttpResp *resp)
     {
-        resp->set_status(HttpStatusOK);
-        resp->set_content(req->body(), "text/plain");
+        resp->String(req->body());
     });
 
     uint16_t port = argc > 1 ? static_cast<uint16_t>(atoi(argv[1])) : 8080;
 
     if (sv.start(port) == 0)
     {
+        g_sv = &sv;
         signal(SIGINT, sig_handler);
-        sv.wait();
+        signal(SIGTERM, sig_handler);
+        sv.wait_finish();
     }
     else
     {
