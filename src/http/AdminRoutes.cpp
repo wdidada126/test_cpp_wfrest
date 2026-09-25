@@ -197,6 +197,170 @@ void registerAdminRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
 
         api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
     });
+
+    // POST /api/v1/admin/goods — create goods; 201 with created row
+    sv.POST("/api/v1/admin/goods",
+            [admins, goods, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        domain::AdminGoodsRow row;
+        std::string description;
+
+        std::string goods_sn;
+        if (body.has("goods_sn") && !api::readStr(body, "goods_sn", goods_sn))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "goods_sn");
+            api::send(req, resp,
+                      ApiError::validationError("goods_sn must be a string", details));
+            return;
+        }
+        if (body.has("goods_sn") && goods_sn.size() > 60)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "goods_sn");
+            api::send(req, resp,
+                      ApiError::validationError("goods_sn must be at most 60 bytes", details));
+            return;
+        }
+        row.goods_sn = goods_sn;
+
+        if (!api::readStr(body, "name", row.name) || row.name.empty() || row.name.size() > 255)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "name");
+            api::send(req, resp,
+                      ApiError::validationError("name must be 1-255 bytes", details));
+            return;
+        }
+
+        if (body.has("brief"))
+        {
+            std::string brief;
+            if (!api::readStr(body, "brief", brief) || brief.size() > 255)
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "brief");
+                api::send(req, resp,
+                          ApiError::validationError("brief must be at most 255 bytes", details));
+                return;
+            }
+            row.brief = brief;
+        }
+
+        if (body.has("description") && !api::readStr(body, "description", description))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "description");
+            api::send(req, resp,
+                      ApiError::validationError("description must be a string", details));
+            return;
+        }
+
+        // prices default to zero when not provided; values are decimal strings
+        row.price = "0.00";
+        if (body.has("price"))
+        {
+            if (!api::readStr(body, "price", row.price))
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "price");
+                api::send(req, resp,
+                          ApiError::validationError("price must be a decimal string", details));
+                return;
+            }
+        }
+        row.market_price = "0.00";
+        if (body.has("market_price"))
+        {
+            if (!api::readStr(body, "market_price", row.market_price))
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "market_price");
+                api::send(req, resp,
+                          ApiError::validationError("market_price must be a decimal string",
+                                                    details));
+                return;
+            }
+        }
+
+        if (body.has("stock") && !api::readInt(body, "stock", row.stock) || row.stock < 0)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "stock");
+            api::send(req, resp,
+                      ApiError::validationError("stock must be a non-negative integer", details));
+            return;
+        }
+        if (body.has("cat_id") && !api::readInt(body, "cat_id", row.cat_id) || row.cat_id < 0)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "cat_id");
+            api::send(req, resp, ApiError::validationError("cat_id must be an integer", details));
+            return;
+        }
+        if (body.has("brand_id") && !api::readInt(body, "brand_id", row.brand_id) ||
+            row.brand_id < 0)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "brand_id");
+            api::send(req, resp, ApiError::validationError("brand_id must be an integer", details));
+            return;
+        }
+
+        row.is_on_sale = true;
+        if (body.has("is_on_sale") && !api::readBool(body, "is_on_sale", row.is_on_sale))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "is_on_sale");
+            api::send(req, resp, ApiError::validationError("is_on_sale must be a boolean", details));
+            return;
+        }
+
+        // overlap: libsqlite/mysql both enforce a unique goods_sn when set
+        int64_t created_id = 0;
+        std::string final_sn = row.goods_sn.empty()
+                                   ? "AUTO-" + std::to_string(rand()) // keep <= 60 bytes
+                                   : row.goods_sn;
+        row.goods_sn = final_sn;
+        description = description.empty() ? "" : description;
+
+        try
+        {
+            created_id = goods->create(row, description);
+        }
+        catch (const infra::DbError &)
+        {
+            api::send(req, resp, ApiError::conflict("goods_sn_conflict", "goods_sn is taken"));
+            return;
+        }
+
+        std::optional<domain::AdminGoodsRow> created = goods->find(created_id);
+        if (!created)
+        {
+            api::send(req, resp, ApiError::internalError("goods creation failed"));
+            return;
+        }
+
+        admins->writeLog(admin->admin_id, "create_goods",
+                         "goods_id=" + std::to_string(created_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, ApiResponse::created(adminGoodsToJson(*created)));
+    });
 }
 
 } // namespace ecshop::http
