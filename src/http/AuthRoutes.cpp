@@ -103,6 +103,32 @@ void registerAuthRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         out.push_back("access_token", token);
         api::send(req, resp, ApiResponse::created(out));
     });
+
+    // POST /api/v1/auth/availability/username — hint only, DB unique keys decide
+    sv.POST("/api/v1/auth/availability/username",
+            [users](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        wfrest::Json body;
+        api::ApiResponse err;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string username;
+        if (!api::readStr(body, "username", username) || username.empty())
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "username");
+            api::send(req, resp, ApiError::validationError("username is required", details));
+            return;
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("available", !users->findByUsername(username).has_value());
+        api::send(req, resp, ApiResponse::ok(out));
+    });
 }
 
 } // namespace ecshop::http
