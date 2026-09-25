@@ -147,6 +147,7 @@ set(ECSHOP_SOURCES
     src/infrastructure/SqlCheckoutRepository.cpp
     src/infrastructure/SqlOrderRepository.cpp
     src/infrastructure/SqlCommentRepository.cpp
+    src/infrastructure/SqlFeedRepository.cpp
 )
 
 add_executable(wfrest_server ${ECSHOP_SOURCES})

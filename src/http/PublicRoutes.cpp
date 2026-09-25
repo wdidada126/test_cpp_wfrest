@@ -2,6 +2,7 @@
 #include "ecshop/http/HttpUtil.h"
 #include "ecshop/infrastructure/SqlArticleRepository.h"
 #include "ecshop/infrastructure/SqlCatalogRepository.h"
+#include "ecshop/infrastructure/SqlFeedRepository.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -84,6 +85,7 @@ void registerPublicRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
 {
     auto catalog = std::make_shared<infra::SqlCatalogRepository>(db);
     auto articles = std::make_shared<infra::SqlArticleRepository>(db);
+    auto feed = std::make_shared<infra::SqlFeedRepository>(db);
 
     // GET /goods-widget.js — public goods widget (docs/03)
     sv.GET("/goods-widget.js",
@@ -207,6 +209,116 @@ void registerPublicRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
         xml += "</urlset>\n";
 
         resp->add_header("Content-Type", "application/xml; charset=utf-8");
+        resp->String(xml);
+    });
+
+    // GET /feed.xml?cat=&brand=&type= — RSS 2.0 feed (max 100 items)
+    sv.GET("/feed.xml", [catalog, articles, feed, site_base_url](const wfrest::HttpReq *req,
+                                                                 wfrest::HttpResp *resp)
+    {
+        std::string base = site_base_url;
+        while (!base.empty() && base.back() == '/')
+            base.pop_back();
+
+        std::string type = req->query("type");
+        std::vector<domain::FeedItem> items;
+
+        if (type.empty())
+        {
+            domain::GoodsFilter filter;
+            for (const std::pair<const char *, int64_t *> param :
+                 {std::make_pair("cat", &filter.category_id),
+                  std::make_pair("brand", &filter.brand_id)})
+            {
+                const std::string &raw = req->query(param.first);
+                if (raw.empty())
+                    continue;
+                char *end = nullptr;
+                long long v = std::strtoll(raw.c_str(), &end, 10);
+                if (!end || *end != '\0' || v <= 0)
+                {
+                    api::send(req, resp,
+                              ApiError::validationError(std::string(param.first) +
+                                                        " must be a positive integer"));
+                    return;
+                }
+                *param.second = v;
+            }
+
+            for (const domain::GoodsSummary &item : catalog->listPublicGoods(filter, 100))
+            {
+                domain::FeedItem entry;
+                entry.title = item.name;
+                entry.link = "/api/v1/goods/" + std::to_string(item.goods_id);
+                entry.description = item.brief;
+                items.push_back(std::move(entry));
+            }
+        }
+        else if (type == "activity")
+        {
+            items = feed->listFavourableItems(100);
+        }
+        else if (type.compare(0, 13, "article_cat{") == 0 && type.back() == '}')
+        {
+            std::string id_text = type.substr(13, type.size() - 14);
+            char *end = nullptr;
+            long long v = std::strtoll(id_text.c_str(), &end, 10);
+            if (!end || *end != '\0' || v <= 0)
+            {
+                api::send(req, resp, ApiError::validationError("type is malformed"));
+                return;
+            }
+
+            domain::ArticlePage page = articles->listCategoryArticles(v, 0, 100);
+            for (const domain::ArticleSummary &article : page.items)
+            {
+                domain::FeedItem entry;
+                entry.title = article.title;
+                entry.link = "/api/v1/articles/" + std::to_string(article.article_id);
+                entry.description = article.description;
+                items.push_back(std::move(entry));
+            }
+        }
+        else
+        {
+            // goods_activity types (docs/02: 0=snatch 1=group_buy 2=auction
+            // 3=exchange 4=package)
+            int64_t act_type = -1;
+            if (type == "snatch")
+                act_type = 0;
+            else if (type == "group_buy")
+                act_type = 1;
+            else if (type == "auction")
+                act_type = 2;
+            else if (type == "exchange")
+                act_type = 3;
+            else if (type == "package")
+                act_type = 4;
+
+            if (act_type < 0)
+            {
+                api::send(req, resp,
+                          ApiError::validationError(
+                              "type must be group_buy|snatch|auction|exchange|activity|package"
+                              "|article_cat{id}"));
+                return;
+            }
+            items = feed->listActivityItems(act_type, 100);
+        }
+
+        std::string xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                          "<rss version=\"2.0\"><channel>\n"
+                          "<title>cpp_ecshop</title><link>" + xmlEscape(base) +
+                          "</link><description>cpp_ecshop feed</description>\n";
+        for (const domain::FeedItem &item : items)
+        {
+            xml += "<item><title>" + xmlEscape(item.title) + "</title><link>" +
+                   xmlEscape(base + item.link) + "</link><description>" +
+                   xmlEscape(item.description) + "</description></item>\n";
+        }
+        xml += "</channel></rss>\n";
+
+        resp->add_header("Content-Type", "application/rss+xml; charset=utf-8");
         resp->String(xml);
     });
 }
