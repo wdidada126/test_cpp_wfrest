@@ -3,6 +3,7 @@
 #include "ecshop/http/ArticleRoutes.h"
 #include "ecshop/http/AuthRoutes.h"
 #include "ecshop/http/CatalogRoutes.h"
+#include "ecshop/http/FavoriteRoutes.h"
 #include "ecshop/http/HealthRoutes.h"
 #include "ecshop/http/MeRoutes.h"
 #include "ecshop/http/RegionRoutes.h"
@@ -46,6 +47,7 @@ int main(int argc, char **argv)
     ecshop::http::registerAuthRoutes(sv, db);
     ecshop::http::registerMeRoutes(sv, db);
     ecshop::http::registerAddressRoutes(sv, db);
+    ecshop::http::registerFavoriteRoutes(sv, db);
     ecshop::http::registerRegionRoutes(sv, db);
 
     // GET /ping -> pong
