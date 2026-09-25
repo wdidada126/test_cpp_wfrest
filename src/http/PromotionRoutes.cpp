@@ -90,6 +90,43 @@ void registerPromotionRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> 
 
         api::send(req, resp, ApiResponse::ok(promotionToJson(*promotion)));
     });
+
+    // GET /api/v1/activities — active favourable activities
+    sv.GET("/api/v1/activities", [promotions](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::PageQuery page;
+        api::ApiResponse err;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::vector<domain::Favourable> all =
+            promotions->listFavourableActive(page.offset(), page.page_size);
+
+        wfrest::Json::Array items;
+        for (const domain::Favourable &item : all)
+        {
+            wfrest::Json::Object obj;
+            obj.push_back("act_id", item.act_id);
+            obj.push_back("name", item.name);
+            obj.push_back("start_time", shared::isoUtc(item.start_time));
+            obj.push_back("end_time", shared::isoUtc(item.end_time));
+            obj.push_back("user_rank", item.user_rank);
+            obj.push_back("act_range", item.act_range);
+            obj.push_back("act_range_ext", item.act_range_ext);
+            obj.push_back("min_amount", item.min_amount);
+            obj.push_back("max_amount", item.max_amount);
+            obj.push_back("act_type", item.act_type);
+            obj.push_back("act_type_ext", item.act_type_ext);
+            obj.push_back("gift", item.gift);
+            items.push_back(obj);
+        }
+
+        api::send(req, resp,
+                  ApiResponse::ok(api::listBody(page, static_cast<int64_t>(all.size()), items)));
+    });
 }
 
 } // namespace ecshop::http

@@ -1,4 +1,5 @@
 #include "ecshop/infrastructure/SqlPromotionRepository.h"
+#include "ecshop/shared/Money.h"
 
 namespace ecshop::infra {
 
@@ -68,6 +69,40 @@ std::optional<Promotion> SqlPromotionRepository::findActive(int64_t act_id)
     if (rows.empty())
         return std::nullopt;
     return rowToPromotion(rows.front());
+}
+
+std::vector<domain::Favourable> SqlPromotionRepository::listFavourableActive(int64_t offset,
+                                                                            int64_t limit)
+{
+    std::string sql =
+        "SELECT act_id AS act_id, act_name AS act_name, start_time AS start_time,"
+        " end_time AS end_time, user_rank AS user_rank, act_range AS act_range,"
+        " act_range_ext AS act_range_ext, min_amount AS min_amount, max_amount AS max_amount,"
+        " act_type AS act_type, act_type_ext AS act_type_ext, gift AS gift FROM " +
+        db_->table("favourable_activity") +
+        " WHERE start_time <= " + db_->unixNow() + " AND end_time >= " + db_->unixNow() +
+        " ORDER BY sort_order, act_id LIMIT " + std::to_string(limit) +
+        " OFFSET " + std::to_string(offset);
+
+    std::vector<domain::Favourable> items;
+    for (const Row &row : db_->query(sql, {}))
+    {
+        domain::Favourable item;
+        item.act_id = row.getInt("act_id");
+        item.name = row.get("act_name");
+        item.start_time = row.getInt("start_time");
+        item.end_time = row.getInt("end_time");
+        item.user_rank = row.get("user_rank");
+        item.act_range = row.getInt("act_range");
+        item.act_range_ext = row.get("act_range_ext");
+        item.min_amount = shared::Money::normalize(row.get("min_amount"));
+        item.max_amount = shared::Money::normalize(row.get("max_amount"));
+        item.act_type = row.getInt("act_type");
+        item.act_type_ext = row.get("act_type_ext");
+        item.gift = row.get("gift");
+        items.push_back(std::move(item));
+    }
+    return items;
 }
 
 } // namespace ecshop::infra
