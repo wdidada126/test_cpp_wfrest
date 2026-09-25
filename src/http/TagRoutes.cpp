@@ -136,6 +136,38 @@ void registerTagRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 
         api::send(req, resp, ApiResponse::ok(tagStatsToJson(tags->listOfUser(*user_id))));
     });
+
+    // DELETE /api/v1/me/tags — {"tag":"C++"}, idempotent, own rows only
+    sv.DELETE("/api/v1/me/tags", [users, tags](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string word;
+        if (!api::readStr(body, "tag", word) || word.empty() || word.size() > 255)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "tag");
+            api::send(req, resp,
+                      ApiError::validationError("tag must be 1-255 bytes", details));
+            return;
+        }
+
+        tags->removeTag(*user_id, word);
+        api::send(req, resp, ApiResponse::noContent());
+    });
 }
 
 } // namespace ecshop::http
