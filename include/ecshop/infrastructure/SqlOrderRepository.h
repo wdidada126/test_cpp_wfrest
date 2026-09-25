@@ -23,6 +23,10 @@ public:
     domain::OrderReturnStatus returnToCart(int64_t user_id, int64_t order_id) override;
     std::optional<domain::OrderSummary> findBySnOfUser(int64_t user_id,
                                                        const std::string &order_sn) override;
+    domain::OrderPatchStatus updateAddressOfUser(int64_t user_id, int64_t order_id,
+                                                 const domain::DeliveryAddressPatch &patch) override;
+    domain::OrderPatchStatus updatePaymentOfUser(int64_t user_id, int64_t order_id,
+                                                 int64_t payment_id) override;
 
 private:
     std::string makeOrderSn();

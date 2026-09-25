@@ -408,6 +408,157 @@ void registerOrderRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 
         api::send(req, resp, ApiResponse::ok(orderToJson(*order)));
     });
+
+    // PATCH /api/v1/me/orders/{id}/address — pending_payment + unshipped only
+    sv.PATCH("/api/v1/me/orders/{id}/address",
+             [users, orders](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t order_id = 0;
+        if (!api::parsePathId(req, "id", order_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        domain::DeliveryAddressPatch patch;
+        struct StrField
+        {
+            const char *name;
+            std::string *target;
+            bool required;
+        } fields[] = {
+            {"consignee", &patch.consignee, true},
+            {"email", &patch.email, true},
+            {"address", &patch.address, true},
+            {"zipcode", &patch.zipcode, false},
+            {"tel", &patch.tel, false},
+            {"mobile", &patch.mobile, false},
+            {"sign_building", &patch.sign_building, false},
+            {"best_time", &patch.best_time, false},
+        };
+        for (const StrField &field : fields)
+        {
+            if (!api::readStr(body, field.name, *field.target))
+            {
+                if (!field.required)
+                    continue; // optional, kept empty
+                wfrest::Json::Object details;
+                details.push_back("field", std::string(field.name));
+                api::send(req, resp,
+                          ApiError::validationError(std::string(field.name) + " is required",
+                                                    details));
+                return;
+            }
+        }
+        size_t at = patch.email.find('@');
+        bool email_ok = at != std::string::npos && at > 0 && at + 1 < patch.email.size();
+        if (!email_ok)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "email");
+            api::send(req, resp,
+                      ApiError::validationError("email must be a valid address", details));
+            return;
+        }
+
+        domain::OrderPatchStatus status = orders->updateAddressOfUser(*user_id, order_id, patch);
+        switch (status)
+        {
+        case domain::OrderPatchStatus::Ok:
+        {
+            wfrest::Json::Object out;
+            out.push_back("id", order_id);
+            out.push_back("consignee", patch.consignee);
+            api::send(req, resp, ApiResponse::ok(out));
+            return;
+        }
+        case domain::OrderPatchStatus::InvalidState:
+            api::send(req, resp,
+                      ApiError::invalidState("order is no longer pending_payment/unshipped"));
+            return;
+        case domain::OrderPatchStatus::NotFound:
+        default:
+            api::send(req, resp, ApiError::notFound("order not found"));
+            return;
+        }
+    });
+
+    // PATCH /api/v1/me/orders/{id}/payment — {"payment_id":2}
+    sv.PATCH("/api/v1/me/orders/{id}/payment",
+             [users, orders, checkout](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t order_id = 0;
+        if (!api::parsePathId(req, "id", order_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t payment_id = 0;
+        if (!api::readInt(body, "payment_id", payment_id) || payment_id <= 0)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "payment_id");
+            api::send(req, resp,
+                      ApiError::validationError("payment_id must be a positive integer", details));
+            return;
+        }
+
+        domain::OrderPatchStatus status = orders->updatePaymentOfUser(*user_id, order_id, payment_id);
+        switch (status)
+        {
+        case domain::OrderPatchStatus::Ok:
+        {
+            wfrest::Json::Object out;
+            out.push_back("id", order_id);
+            out.push_back("payment_id", payment_id);
+            api::send(req, resp, ApiResponse::ok(out));
+            return;
+        }
+        case domain::OrderPatchStatus::InvalidState:
+            api::send(req, resp, ApiError::conflict("payment_unchanged",
+                                                    "payment method unchanged or state changed"));
+            return;
+        case domain::OrderPatchStatus::NotFound:
+        default:
+            api::send(req, resp, ApiError::notFound("order or payment method not found"));
+            return;
+        }
+    });
 }
 
 } // namespace ecshop::http
