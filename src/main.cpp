@@ -61,7 +61,7 @@ int main(int argc, char **argv)
     ecshop::http::registerCheckoutRoutes(sv, db);
     ecshop::http::registerOrderRoutes(sv, db);
     ecshop::http::registerCommentRoutes(sv, db);
-    ecshop::http::registerPublicRoutes(sv, db);
+    ecshop::http::registerPublicRoutes(sv, db, cfg.site_base_url);
     ecshop::http::registerRegionRoutes(sv, db);
 
     // GET /ping -> pong

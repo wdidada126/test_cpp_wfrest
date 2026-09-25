@@ -1,5 +1,6 @@
 #include "ecshop/http/PublicRoutes.h"
 #include "ecshop/http/HttpUtil.h"
+#include "ecshop/infrastructure/SqlArticleRepository.h"
 #include "ecshop/infrastructure/SqlCatalogRepository.h"
 
 #include <algorithm>
@@ -43,9 +44,46 @@ static std::string jsEscape(const std::string &text)
 static const std::vector<std::string> kIntroTypes = {
     "is_best", "is_new", "is_hot", "is_promote", "is_random"};
 
-void registerPublicRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
+static std::string xmlEscape(const std::string &text)
+{
+    std::string out;
+    out.reserve(text.size());
+    for (char c : text)
+    {
+        switch (c)
+        {
+        case '&':
+            out += "&amp;";
+            break;
+        case '<':
+            out += "&lt;";
+            break;
+        case '>':
+            out += "&gt;";
+            break;
+        case '"':
+            out += "&quot;";
+            break;
+        case '\'':
+            out += "&apos;";
+            break;
+        default:
+            out.push_back(c);
+        }
+    }
+    return out;
+}
+
+static void appendUrl(std::string &xml, const std::string &base, const std::string &path)
+{
+    xml += "<url><loc>" + xmlEscape(base + path) + "</loc></url>\n";
+}
+
+void registerPublicRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
+                          const std::string &site_base_url)
 {
     auto catalog = std::make_shared<infra::SqlCatalogRepository>(db);
+    auto articles = std::make_shared<infra::SqlArticleRepository>(db);
 
     // GET /goods-widget.js — public goods widget (docs/03)
     sv.GET("/goods-widget.js",
@@ -138,6 +176,38 @@ void registerPublicRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 
         resp->add_header("Content-Type", "application/javascript; charset=utf-8");
         resp->String(js);
+    });
+
+    // GET /sitemap.xml — home, categories, article categories, goods, articles
+    sv.GET("/sitemap.xml",
+           [catalog, articles, site_base_url](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        std::string base = site_base_url;
+        while (!base.empty() && base.back() == '/')
+            base.pop_back();
+
+        std::string xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                          "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n";
+        appendUrl(xml, base, "/");
+
+        for (const domain::CategorySummary &cat : catalog->listVisibleCategories())
+            appendUrl(xml, base, "/api/v1/categories/" + std::to_string(cat.cat_id) + "/goods");
+
+        for (const domain::ArticleCategory &cat : articles->listVisibleCategories())
+            appendUrl(xml, base,
+                      "/api/v1/article-categories/" + std::to_string(cat.cat_id) + "/articles");
+
+        // at most 300 public goods (docs/03)
+        for (const domain::GoodsSummary &item : catalog->listPublicGoods({}, 300))
+            appendUrl(xml, base, "/api/v1/goods/" + std::to_string(item.goods_id));
+
+        for (const domain::Article &article : articles->listOpenArticles(300))
+            appendUrl(xml, base, "/api/v1/articles/" + std::to_string(article.article_id));
+
+        xml += "</urlset>\n";
+
+        resp->add_header("Content-Type", "application/xml; charset=utf-8");
+        resp->String(xml);
     });
 }
 

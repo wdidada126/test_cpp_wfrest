@@ -14,6 +14,8 @@ public:
     std::vector<domain::ArticleSummary> listLatestOpen(int64_t limit) override;
     bool categoryVisible(int64_t cat_id) override;
     domain::ArticlePage listCategoryArticles(int64_t cat_id, int64_t offset, int64_t limit) override;
+    std::vector<domain::ArticleCategory> listVisibleCategories() override;
+    std::vector<domain::Article> listOpenArticles(int64_t limit) override;
 
 private:
     std::shared_ptr<Db> db_;

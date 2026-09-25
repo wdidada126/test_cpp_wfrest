@@ -23,6 +23,12 @@ public:
 
     // open articles of one article category, paged
     virtual ArticlePage listCategoryArticles(int64_t cat_id, int64_t offset, int64_t limit) = 0;
+
+    // visible article categories (is_show = 1)
+    virtual std::vector<ArticleCategory> listVisibleCategories() = 0;
+
+    // open articles, newest first (sitemap/feed)
+    virtual std::vector<Article> listOpenArticles(int64_t limit) = 0;
 };
 
 } // namespace ecshop::domain

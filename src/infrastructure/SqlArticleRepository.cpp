@@ -87,4 +87,46 @@ domain::ArticlePage SqlArticleRepository::listCategoryArticles(int64_t cat_id, i
     return page;
 }
 
+std::vector<domain::ArticleCategory> SqlArticleRepository::listVisibleCategories()
+{
+    std::string sql =
+        "SELECT cat_id AS cat_id, cat_name AS cat_name FROM " + db_->table("article_cat") +
+        " WHERE is_show = 1 ORDER BY sort_order, cat_id";
+
+    std::vector<domain::ArticleCategory> items;
+    for (const Row &row : db_->query(sql, {}))
+    {
+        domain::ArticleCategory item;
+        item.cat_id = row.getInt("cat_id");
+        item.name = row.get("cat_name");
+        items.push_back(std::move(item));
+    }
+    return items;
+}
+
+std::vector<domain::Article> SqlArticleRepository::listOpenArticles(int64_t limit)
+{
+    std::string sql =
+        "SELECT article_id AS article_id, cat_id AS cat_id, title AS title,"
+        " author AS author, article_desc AS article_desc, content AS content,"
+        " keywords AS keywords, is_open AS is_open FROM " + db_->table("article") +
+        " WHERE is_open = 1 ORDER BY article_id DESC LIMIT " + std::to_string(limit);
+
+    std::vector<domain::Article> items;
+    for (const Row &row : db_->query(sql, {}))
+    {
+        domain::Article article;
+        article.article_id = row.getInt("article_id");
+        article.cat_id = row.getInt("cat_id");
+        article.title = row.get("title");
+        article.author = row.get("author");
+        article.description = row.get("article_desc");
+        article.content = row.get("content");
+        article.keywords = row.get("keywords");
+        article.is_open = true;
+        items.push_back(std::move(article));
+    }
+    return items;
+}
+
 } // namespace ecshop::infra

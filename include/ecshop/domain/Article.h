@@ -32,4 +32,10 @@ struct ArticlePage
     std::vector<ArticleSummary> items;
 };
 
+struct ArticleCategory
+{
+    int64_t cat_id = 0;
+    std::string name;
+};
+
 } // namespace ecshop::domain
