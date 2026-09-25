@@ -54,6 +54,53 @@ void registerFavoriteRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> d
         api::send(req, resp,
                   ApiResponse::ok(api::listBody(page, static_cast<int64_t>(all.size()), items)));
     });
+
+    // POST /api/v1/me/favorites — favorite a visible goods
+    sv.POST("/api/v1/me/favorites",
+            [users, favorites](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t goods_id = 0;
+        if (!api::readInt(body, "goods_id", goods_id) || goods_id <= 0)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "goods_id");
+            api::send(req, resp,
+                      ApiError::validationError("goods_id must be a positive integer", details));
+            return;
+        }
+
+        domain::FavoriteAddResult result = favorites->add(*user_id, goods_id);
+        if (result == domain::FavoriteAddResult::GoodsNotVisible)
+        {
+            api::send(req, resp, ApiError::notFound("goods not found"));
+            return;
+        }
+        if (result == domain::FavoriteAddResult::Duplicate)
+        {
+            api::send(req, resp, ApiError::conflict("favorite_exists", "goods already favorited"));
+            return;
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("goods_id", goods_id);
+        out.push_back("attention", false);
+        api::send(req, resp, ApiResponse::created(out));
+    });
 }
 
 } // namespace ecshop::http
