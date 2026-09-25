@@ -184,6 +184,51 @@ void registerAddressRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
         address.address_id = addresses->create(*user_id, address);
         api::send(req, resp, ApiResponse::created(addressToJson(address)));
     });
+
+    // PATCH /api/v1/me/addresses/{id}
+    sv.PATCH("/api/v1/me/addresses/{id}",
+             [users, addresses, regions](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t address_id = 0;
+        if (!api::parsePathId(req, "id", address_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        domain::Address address;
+        if (!parseAddressBody(body, regions, address, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        if (!addresses->update(*user_id, address_id, address))
+        {
+            api::send(req, resp, ApiError::notFound("address not found"));
+            return;
+        }
+
+        address.address_id = address_id;
+        api::send(req, resp, ApiResponse::ok(addressToJson(address)));
+    });
 }
 
 } // namespace ecshop::http
