@@ -361,6 +361,175 @@ void registerAdminRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
                          task_of(resp)->peer_addr());
         api::send(req, resp, ApiResponse::created(adminGoodsToJson(*created)));
     });
+
+    // PATCH /api/v1/admin/goods/{id} — optional-field patch, audit logged
+    sv.PATCH("/api/v1/admin/goods/{id}",
+             [admins, goods, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t goods_id = 0;
+        if (!api::parsePathId(req, "id", goods_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        domain::AdminGoodsPatch patch;
+        std::string value;
+
+        auto checkStr = [&](const char *key, std::optional<std::string> &target,
+                            size_t max_len) -> bool {
+            if (!body.has(key))
+                return true;
+            if (!api::readStr(body, key, value) || value.size() > max_len)
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", std::string(key));
+                err = ApiError::validationError(std::string(key) + " must be at most " +
+                                                std::to_string(max_len) + " bytes",
+                                                details);
+                return false;
+            }
+            target = value;
+            return true;
+        };
+        if (!checkStr("name", patch.name, 255) || !checkStr("brief", patch.brief, 255) ||
+            !checkStr("description", patch.description, 1 << 16))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        auto checkMoney = [&](const char *key, std::optional<std::string> &target) -> bool {
+            if (!body.has(key))
+                return true;
+            if (!api::readStr(body, key, value))
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", std::string(key));
+                err = ApiError::validationError(std::string(key) + " must be a decimal string",
+                                                details);
+                return false;
+            }
+            target = value;
+            return true;
+        };
+        if (!checkMoney("price", patch.price) || !checkMoney("market_price", patch.market_price))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        auto checkInt = [&](const char *key, std::optional<int64_t> &target, bool nonneg) {
+            int64_t v = 0;
+            if (!body.has(key))
+                return true;
+            if (!api::readInt(body, key, v) || (nonneg && v < 0))
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", std::string(key));
+                err = ApiError::validationError(std::string(key) + " must be an integer",
+                                                details);
+                return false;
+            }
+            target = v;
+            return true;
+        };
+        if (!checkInt("stock", patch.stock, true) || !checkInt("cat_id", patch.cat_id, true) ||
+            !checkInt("brand_id", patch.brand_id, true))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        auto checkBool = [&](const char *key, std::optional<bool> &target) -> bool {
+            bool v = false;
+            if (!body.has(key))
+                return true;
+            if (!api::readBool(body, key, v))
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", std::string(key));
+                err = ApiError::validationError(std::string(key) + " must be a boolean", details);
+                return false;
+            }
+            target = v;
+            return true;
+        };
+        if (!checkBool("is_on_sale", patch.is_on_sale) || !checkBool("is_best", patch.is_best) ||
+            !checkBool("is_new", patch.is_new) || !checkBool("is_hot", patch.is_hot) ||
+            !checkBool("is_promote", patch.is_promote))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        if (!goods->patch(goods_id, patch))
+        {
+            api::send(req, resp, ApiError::notFound("goods not found"));
+            return;
+        }
+
+        std::optional<domain::AdminGoodsRow> updated = goods->find(goods_id);
+        if (!updated)
+        {
+            api::send(req, resp, ApiError::internalError("goods patch failed"));
+            return;
+        }
+
+        admins->writeLog(admin->admin_id, "patch_goods", "goods_id=" + std::to_string(goods_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, ApiResponse::ok(adminGoodsToJson(*updated)));
+    });
+
+    // DELETE /api/v1/admin/goods/{id} — soft delete (is_delete = 1)
+    sv.DELETE("/api/v1/admin/goods/{id}",
+              [admins, goods, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t goods_id = 0;
+        if (!api::parsePathId(req, "id", goods_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        if (!goods->softDelete(goods_id))
+        {
+            api::send(req, resp, ApiError::notFound("goods not found"));
+            return;
+        }
+
+        admins->writeLog(admin->admin_id, "delete_goods",
+                         "goods_id=" + std::to_string(goods_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, ApiResponse::noContent());
+    });
 }
 
 } // namespace ecshop::http
