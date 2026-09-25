@@ -1,0 +1,73 @@
+#include "ecshop/infrastructure/SqlPromotionRepository.h"
+
+namespace ecshop::infra {
+
+using domain::Promotion;
+using domain::PromotionPage;
+
+static const char *kPromotionCols =
+    "act_id AS act_id, act_name AS act_name, act_desc AS act_desc, act_type AS act_type,"
+    " goods_id AS goods_id, goods_name AS goods_name, start_time AS start_time,"
+    " end_time AS end_time, ext_info AS ext_info";
+
+static Promotion rowToPromotion(const Row &row)
+{
+    Promotion promotion;
+    promotion.act_id = row.getInt("act_id");
+    promotion.name = row.get("act_name");
+    promotion.description = row.get("act_desc");
+    promotion.act_type = row.getInt("act_type");
+    promotion.goods_id = row.getInt("goods_id");
+    promotion.goods_name = row.get("goods_name");
+    promotion.start_time = row.getInt("start_time");
+    promotion.end_time = row.getInt("end_time");
+    promotion.ext_info = row.get("ext_info");
+    return promotion;
+}
+
+static std::string activeWhere(const std::shared_ptr<Db> &db)
+{
+    // time window + still visible goods
+    return std::string("ga.is_finished = 0 AND ga.start_time <= ") + db->unixNow() +
+           " AND ga.end_time >= " + db->unixNow() +
+           " AND EXISTS (SELECT 1 FROM " + db->table("goods") +
+           " g WHERE g.goods_id = ga.goods_id AND g.is_on_sale = 1 AND g.is_delete = 0)";
+}
+
+PromotionPage SqlPromotionRepository::listActive(int64_t act_type, int64_t offset, int64_t limit)
+{
+    PromotionPage page;
+
+    std::string where = activeWhere(db_);
+    if (act_type > 0)
+        where += " AND ga.act_type = " + std::to_string(act_type);
+
+    std::vector<Row> counts = db_->query(
+        "SELECT COUNT(*) AS total FROM " + db_->table("goods_activity") + " ga WHERE " + where, {});
+    if (!counts.empty())
+        page.total = counts.front().getInt("total");
+
+    // limit/offset are validated integers formatted by us; no user data here.
+    std::string sql =
+        "SELECT " + std::string(kPromotionCols) + " FROM " + db_->table("goods_activity") +
+        " ga WHERE " + where + " ORDER BY ga.act_id DESC LIMIT " + std::to_string(limit) +
+        " OFFSET " + std::to_string(offset);
+
+    for (const Row &row : db_->query(sql, {}))
+        page.items.push_back(rowToPromotion(row));
+    return page;
+}
+
+std::optional<Promotion> SqlPromotionRepository::findActive(int64_t act_id)
+{
+    std::string sql = "SELECT " + std::string(kPromotionCols) + " FROM " +
+                      db_->table("goods_activity") + " ga WHERE ga.act_id = ? AND " +
+                      activeWhere(db_);
+
+    std::vector<Row> rows = db_->query(sql, {std::to_string(act_id)});
+    if (rows.empty())
+        return std::nullopt;
+    return rowToPromotion(rows.front());
+}
+
+} // namespace ecshop::infra
