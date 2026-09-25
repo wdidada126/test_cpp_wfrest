@@ -443,6 +443,42 @@ void registerCatalogRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
 
         api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
     });
+
+    // GET /api/v1/brands/{id}/goods?page=&page_size=
+    sv.GET("/api/v1/brands/{id}/goods",
+           [repo](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        int64_t brand_id = 0;
+        if (!api::parsePathId(req, "id", brand_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        api::PageQuery page;
+        api::ApiResponse err;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        if (!repo->brandVisible(brand_id))
+        {
+            api::send(req, resp, ApiError::notFound("brand not found"));
+            return;
+        }
+
+        domain::GoodsPage result = repo->listBrandGoods(brand_id, page.offset(), page.page_size);
+
+        wfrest::Json::Array items;
+        for (const domain::GoodsSummary &item : result.items)
+            items.push_back(goodsSummaryToJson(item));
+
+        api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
+    });
 }
 
 } // namespace ecshop::http

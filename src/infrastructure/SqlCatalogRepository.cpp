@@ -335,4 +335,18 @@ domain::BrandPage SqlCatalogRepository::listVisibleBrands(int64_t offset, int64_
     return page;
 }
 
+bool SqlCatalogRepository::brandVisible(int64_t brand_id)
+{
+    std::string sql = "SELECT brand_id AS brand_id FROM " + db_->table("brand") +
+                      " WHERE brand_id = ? AND is_show = 1";
+    return !db_->query(sql, {std::to_string(brand_id)}).empty();
+}
+
+domain::GoodsPage SqlCatalogRepository::listBrandGoods(int64_t brand_id, int64_t offset,
+                                                       int64_t limit)
+{
+    return listGoods("g.brand_id = ? AND g.is_on_sale = 1 AND g.is_delete = 0",
+                     {std::to_string(brand_id)}, offset, limit);
+}
+
 } // namespace ecshop::infra

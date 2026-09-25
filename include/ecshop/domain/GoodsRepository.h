@@ -34,6 +34,12 @@ public:
 
     // visible brands with goods_count, paged
     virtual BrandPage listVisibleBrands(int64_t offset, int64_t limit) = 0;
+
+    // visible brand means existing and is_show = 1
+    virtual bool brandVisible(int64_t brand_id) = 0;
+
+    // on-sale, not deleted goods of one brand
+    virtual GoodsPage listBrandGoods(int64_t brand_id, int64_t offset, int64_t limit) = 0;
 };
 
 } // namespace ecshop::domain
