@@ -377,6 +377,37 @@ void registerOrderRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
             return;
         }
     });
+
+    // GET /api/v1/me/orders/by-number/{order_sn}/status — status by order number
+    sv.GET("/api/v1/me/orders/by-number/{order_sn}/status",
+           [users, orders](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        const std::string &order_sn = req->param("order_sn");
+        if (order_sn.empty() || order_sn.size() > 40)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "order_sn");
+            api::send(req, resp, ApiError::validationError("order_sn is required", details));
+            return;
+        }
+
+        std::optional<domain::OrderSummary> order = orders->findBySnOfUser(*user_id, order_sn);
+        if (!order)
+        {
+            api::send(req, resp, ApiError::notFound("order not found"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::ok(orderToJson(*order)));
+    });
 }
 
 } // namespace ecshop::http

@@ -507,4 +507,21 @@ domain::OrderReturnStatus SqlOrderRepository::returnToCart(int64_t user_id, int6
     return status;
 }
 
+std::optional<domain::OrderSummary> SqlOrderRepository::findBySnOfUser(int64_t user_id,
+                                                                        const std::string &order_sn)
+{
+    std::string order_time = db_->orderTimeCol();
+    std::string sql =
+        "SELECT order_id AS order_id, order_sn AS order_sn, order_status AS order_status,"
+        " goods_amount AS goods_amount, shipping_fee AS shipping_fee,"
+        " payment_fee AS payment_fee, order_amount AS order_amount," +
+        db_->toUnix(order_time) + " AS created_at FROM " + db_->table("order_info") +
+        " WHERE order_sn = ? AND user_id = ?";
+
+    std::vector<Row> rows = db_->query(sql, {order_sn, std::to_string(user_id)});
+    if (rows.empty())
+        return std::nullopt;
+    return rowToOrderSummary(rows.front());
+}
+
 } // namespace ecshop::infra

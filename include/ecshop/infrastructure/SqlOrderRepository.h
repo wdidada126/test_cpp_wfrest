@@ -21,6 +21,8 @@ public:
     domain::OrderCancelStatus receivedOfUser(int64_t user_id, int64_t order_id,
                                              domain::OrderSummary &out) override;
     domain::OrderReturnStatus returnToCart(int64_t user_id, int64_t order_id) override;
+    std::optional<domain::OrderSummary> findBySnOfUser(int64_t user_id,
+                                                       const std::string &order_sn) override;
 
 private:
     std::string makeOrderSn();

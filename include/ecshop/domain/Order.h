@@ -106,6 +106,10 @@ public:
     // merge the order's goods snapshot back into the user's cart, capped at the
     // current saleable stock
     virtual OrderReturnStatus returnToCart(int64_t user_id, int64_t order_id) = 0;
+
+    // status query by order number, always scoped to the current user
+    virtual std::optional<OrderSummary> findBySnOfUser(int64_t user_id,
+                                                       const std::string &order_sn) = 0;
 };
 
 } // namespace ecshop::domain
