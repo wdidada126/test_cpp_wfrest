@@ -116,6 +116,7 @@ set(ECSHOP_SOURCES
     src/infrastructure/db/DbFactory.cpp
     src/http/ApiError.cpp
     src/http/AuthUtil.cpp
+    src/http/AuthRoutes.cpp
     src/http/HttpUtil.cpp
     src/http/HealthRoutes.cpp
     src/http/CatalogRoutes.cpp
