@@ -349,4 +349,39 @@ domain::GoodsPage SqlCatalogRepository::listBrandGoods(int64_t brand_id, int64_t
                      {std::to_string(brand_id)}, offset, limit);
 }
 
+std::optional<domain::GoodsGallery> SqlCatalogRepository::findGallery(int64_t goods_id)
+{
+    std::vector<Row> goods = db_->query(
+        "SELECT goods_id AS goods_id, goods_name AS goods_name FROM " + db_->table("goods") +
+            " WHERE goods_id = ? AND is_on_sale = 1 AND is_delete = 0",
+        {std::to_string(goods_id)});
+    if (goods.empty())
+        return std::nullopt;
+
+    domain::GoodsGallery gallery;
+    gallery.goods_id = goods.front().getInt("goods_id");
+    gallery.name = goods.front().get("goods_name");
+
+    const std::string gallery_t = db_->table("goods_gallery");
+    for (const Row &r : db_->query(
+             "SELECT ga.img_id AS img_id, ga.img_url AS img_url, ga.img_desc AS img_desc, " +
+             db_->galleryThumb("ga") + " AS thumb_url, " +
+             db_->galleryOriginal("ga") + " AS img_original FROM " + gallery_t +
+             " ga WHERE ga.goods_id = ? ORDER BY ga.img_id",
+             {std::to_string(goods_id)}))
+    {
+        GoodsImage img;
+        img.img_id = r.getInt("img_id");
+        img.url = r.get("img_url");
+        img.thumb_url = r.get("thumb_url");
+        img.original_url = r.get("img_original");
+        img.description = r.get("img_desc");
+        gallery.images.push_back(std::move(img));
+    }
+
+    if (gallery.images.empty())
+        return std::nullopt;
+    return gallery;
+}
+
 } // namespace ecshop::infra

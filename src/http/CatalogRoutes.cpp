@@ -479,6 +479,45 @@ void registerCatalogRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
 
         api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
     });
+
+    // GET /api/v1/goods/{id}/gallery — goods images (docs/03)
+    sv.GET("/api/v1/goods/{id}/gallery",
+           [repo](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        int64_t goods_id = 0;
+        if (!api::parsePathId(req, "id", goods_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        std::optional<domain::GoodsGallery> gallery = repo->findGallery(goods_id);
+        if (!gallery)
+        {
+            api::send(req, resp, ApiError::notFound("goods or gallery not found"));
+            return;
+        }
+
+        wfrest::Json::Array images;
+        for (const domain::GoodsImage &img : gallery->images)
+        {
+            wfrest::Json::Object it;
+            it.push_back("img_id", img.img_id);
+            it.push_back("url", img.url);
+            it.push_back("thumb_url", img.thumb_url);
+            it.push_back("original_url", img.original_url);
+            it.push_back("description", img.description);
+            images.push_back(it);
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("goods_id", gallery->goods_id);
+        out.push_back("name", gallery->name);
+        out.push_back("images", images);
+        api::send(req, resp, ApiResponse::ok(out));
+    });
 }
 
 } // namespace ecshop::http

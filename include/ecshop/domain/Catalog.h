@@ -66,6 +66,14 @@ struct GoodsSummary
     std::string market_price;
 };
 
+// GET /api/v1/goods/{id}/gallery payload
+struct GoodsGallery
+{
+    int64_t goods_id = 0;
+    std::string name;
+    std::vector<GoodsImage> images;
+};
+
 // Paged listing result (docs/03_api_contract.md list envelope)
 struct GoodsPage
 {

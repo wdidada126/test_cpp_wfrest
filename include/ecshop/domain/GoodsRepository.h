@@ -40,6 +40,10 @@ public:
 
     // on-sale, not deleted goods of one brand
     virtual GoodsPage listBrandGoods(int64_t brand_id, int64_t offset, int64_t limit) = 0;
+
+    // goods name + gallery rows; nullopt when the goods is invisible or has no
+    // uploaded images
+    virtual std::optional<GoodsGallery> findGallery(int64_t goods_id) = 0;
 };
 
 } // namespace ecshop::domain

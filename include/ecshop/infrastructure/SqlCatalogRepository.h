@@ -22,6 +22,7 @@ public:
     domain::BrandPage listVisibleBrands(int64_t offset, int64_t limit) override;
     bool brandVisible(int64_t brand_id) override;
     domain::GoodsPage listBrandGoods(int64_t brand_id, int64_t offset, int64_t limit) override;
+    std::optional<domain::GoodsGallery> findGallery(int64_t goods_id) override;
 
 private:
     domain::GoodsPage listGoods(const std::string &where_sql,
