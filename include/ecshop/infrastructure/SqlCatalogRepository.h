@@ -13,8 +13,13 @@ public:
     explicit SqlCatalogRepository(std::shared_ptr<Db> db) : db_(std::move(db)) {}
 
     std::optional<domain::Goods> findVisibleGoods(int64_t goods_id) override;
+    bool categoryVisible(int64_t cat_id) override;
+    domain::GoodsPage listCategoryGoods(int64_t cat_id, int64_t offset, int64_t limit) override;
 
 private:
+    domain::GoodsPage listGoods(const std::string &where_sql,
+                                const infra::Params &params,
+                                int64_t offset, int64_t limit);
     std::shared_ptr<Db> db_;
 };
 

@@ -116,4 +116,53 @@ std::optional<Goods> SqlCatalogRepository::findVisibleGoods(int64_t goods_id)
     return g;
 }
 
+bool SqlCatalogRepository::categoryVisible(int64_t cat_id)
+{
+    std::string sql = "SELECT cat_id AS cat_id FROM " + db_->table("category") +
+                      " WHERE cat_id = ? AND is_show = 1";
+    return !db_->query(sql, {std::to_string(cat_id)}).empty();
+}
+
+domain::GoodsPage SqlCatalogRepository::listGoods(const std::string &where_sql,
+                                                  const Params &params,
+                                                  int64_t offset, int64_t limit)
+{
+    const std::string goods_t = db_->table("goods");
+
+    domain::GoodsPage page;
+    std::string count_sql = "SELECT COUNT(*) AS total FROM " + goods_t + " g WHERE " + where_sql;
+    std::vector<Row> counts = db_->query(count_sql, params);
+    if (!counts.empty())
+        page.total = counts.front().getInt("total");
+
+    // limit/offset are validated integers formatted by us; user data stays bound.
+    std::string sql =
+        "SELECT g.goods_id AS goods_id, g.goods_sn AS goods_sn,"
+        " g.goods_name AS goods_name, g.goods_brief AS goods_brief,"
+        " g.shop_price AS shop_price, g.market_price AS market_price"
+        " FROM " + goods_t + " g WHERE " + where_sql +
+        " ORDER BY g.goods_id LIMIT " + std::to_string(limit) +
+        " OFFSET " + std::to_string(offset);
+
+    for (const Row &r : db_->query(sql, params))
+    {
+        domain::GoodsSummary item;
+        item.goods_id = r.getInt("goods_id");
+        item.goods_sn = r.get("goods_sn");
+        item.name = r.get("goods_name");
+        item.brief = r.get("goods_brief");
+        item.price = shared::Money::normalize(r.get("shop_price"));
+        item.market_price = shared::Money::normalize(r.get("market_price"));
+        page.items.push_back(std::move(item));
+    }
+    return page;
+}
+
+domain::GoodsPage SqlCatalogRepository::listCategoryGoods(int64_t cat_id, int64_t offset,
+                                                          int64_t limit)
+{
+    return listGoods("g.cat_id = ? AND g.is_on_sale = 1 AND g.is_delete = 0",
+                     {std::to_string(cat_id)}, offset, limit);
+}
+
 } // namespace ecshop::infra

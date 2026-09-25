@@ -66,4 +66,11 @@ struct GoodsSummary
     std::string market_price;
 };
 
+// Paged listing result (docs/03_api_contract.md list envelope)
+struct GoodsPage
+{
+    int64_t total = 0;
+    std::vector<GoodsSummary> items;
+};
+
 } // namespace ecshop::domain

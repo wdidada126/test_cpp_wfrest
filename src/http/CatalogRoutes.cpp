@@ -75,6 +75,18 @@ static wfrest::Json goodsToJson(const domain::Goods &g)
     return obj;
 }
 
+static wfrest::Json goodsSummaryToJson(const domain::GoodsSummary &item)
+{
+    wfrest::Json::Object obj;
+    obj.push_back("goods_id", item.goods_id);
+    obj.push_back("goods_sn", item.goods_sn);
+    obj.push_back("name", item.name);
+    obj.push_back("brief", item.brief);
+    obj.push_back("price", item.price);
+    obj.push_back("market_price", item.market_price);
+    return obj;
+}
+
 void registerCatalogRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 {
     auto repo = std::make_shared<infra::SqlCatalogRepository>(db);
@@ -99,6 +111,42 @@ void registerCatalogRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
         }
 
         api::send(req, resp, ApiResponse::ok(goodsToJson(*goods)));
+    });
+
+    // GET /api/v1/categories/{id}/goods?page=&page_size=
+    sv.GET("/api/v1/categories/{id}/goods",
+           [repo](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        int64_t cat_id = 0;
+        if (!api::parsePathId(req, "id", cat_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        api::PageQuery page;
+        api::ApiResponse err;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        if (!repo->categoryVisible(cat_id))
+        {
+            api::send(req, resp, ApiError::notFound("category not found"));
+            return;
+        }
+
+        domain::GoodsPage result = repo->listCategoryGoods(cat_id, page.offset(), page.page_size);
+
+        wfrest::Json::Array items;
+        for (const domain::GoodsSummary &item : result.items)
+            items.push_back(goodsSummaryToJson(item));
+
+        api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
     });
 }
 

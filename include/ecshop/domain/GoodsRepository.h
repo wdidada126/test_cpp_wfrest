@@ -16,6 +16,12 @@ public:
 
     // nullopt when missing, deleted or off shelf
     virtual std::optional<Goods> findVisibleGoods(int64_t goods_id) = 0;
+
+    // visible category means existing and is_show = 1
+    virtual bool categoryVisible(int64_t cat_id) = 0;
+
+    // on-sale, not deleted goods of one category
+    virtual GoodsPage listCategoryGoods(int64_t cat_id, int64_t offset, int64_t limit) = 0;
 };
 
 } // namespace ecshop::domain
