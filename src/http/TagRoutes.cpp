@@ -122,6 +122,20 @@ void registerTagRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 
         api::send(req, resp, ApiResponse::created(tagStatsToJson(stats)));
     });
+
+    // GET /api/v1/me/tags — current user's tag words with usage counts
+    sv.GET("/api/v1/me/tags", [users, tags](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::ok(tagStatsToJson(tags->listOfUser(*user_id))));
+    });
 }
 
 } // namespace ecshop::http
