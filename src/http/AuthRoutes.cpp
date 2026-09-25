@@ -129,6 +129,32 @@ void registerAuthRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         out.push_back("available", !users->findByUsername(username).has_value());
         api::send(req, resp, ApiResponse::ok(out));
     });
+
+    // POST /api/v1/auth/availability/email — hint only, DB unique keys decide
+    sv.POST("/api/v1/auth/availability/email",
+            [users](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        wfrest::Json body;
+        api::ApiResponse err;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string email;
+        if (!api::readStr(body, "email", email) || !looksLikeEmail(email))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "email");
+            api::send(req, resp, ApiError::validationError("email is required", details));
+            return;
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("available", !users->findByEmail(email).has_value());
+        api::send(req, resp, ApiResponse::ok(out));
+    });
 }
 
 } // namespace ecshop::http
