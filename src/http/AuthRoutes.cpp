@@ -195,6 +195,22 @@ void registerAuthRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         out.push_back("access_token", token);
         api::send(req, resp, ApiResponse::ok(out));
     });
+
+    // POST /api/v1/auth/logout — revoke the current session
+    sv.POST("/api/v1/auth/logout", [users](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        if (!api::authenticate(req, users, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        const std::string &header = req->header("Authorization");
+        std::string token = header.substr(std::string("Bearer ").size());
+        users->deleteSession(shared::sha256Hex(token));
+        api::send(req, resp, ApiResponse::noContent());
+    });
 }
 
 } // namespace ecshop::http
