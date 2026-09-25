@@ -116,6 +116,8 @@ set(ECSHOP_SOURCES
     src/http/ApiError.cpp
     src/http/HttpUtil.cpp
     src/http/HealthRoutes.cpp
+    src/http/CatalogRoutes.cpp
+    src/infrastructure/SqlCatalogRepository.cpp
 )
 
 add_executable(wfrest_server ${ECSHOP_SOURCES})
