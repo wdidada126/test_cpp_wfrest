@@ -197,4 +197,44 @@ PlaceOrderStatus SqlOrderRepository::placeOrder(const PlaceOrderCommand &command
     return status;
 }
 
+static OrderSummary rowToOrderSummary(const Row &row)
+{
+    OrderSummary summary;
+    summary.order_id = row.getInt("order_id");
+    summary.order_sn = row.get("order_sn");
+    summary.status = row.get("order_status");
+    summary.goods_amount = shared::Money::normalize(row.get("goods_amount"));
+    summary.shipping_fee = shared::Money::normalize(row.get("shipping_fee"));
+    summary.payment_fee = shared::Money::normalize(row.get("payment_fee"));
+    summary.order_amount = shared::Money::normalize(row.get("order_amount"));
+    summary.created_at = row.get("created_at");
+    return summary;
+}
+
+domain::OrderPage SqlOrderRepository::listOfUser(int64_t user_id, int64_t offset, int64_t limit)
+{
+    const std::string order_t = db_->table("order_info");
+    const std::string order_time = db_->orderTimeCol();
+
+    domain::OrderPage page;
+    std::vector<Row> counts = db_->query(
+        "SELECT COUNT(*) AS total FROM " + order_t + " WHERE user_id = ?",
+        {std::to_string(user_id)});
+    if (!counts.empty())
+        page.total = counts.front().getInt("total");
+
+    // limit/offset are validated integers formatted by us; user data stays bound.
+    std::string sql =
+        "SELECT order_id AS order_id, order_sn AS order_sn, order_status AS order_status,"
+        " goods_amount AS goods_amount, shipping_fee AS shipping_fee,"
+        " payment_fee AS payment_fee, order_amount AS order_amount," +
+        db_->toUnix(order_time) + " AS created_at FROM " + order_t +
+        " WHERE user_id = ? ORDER BY order_id DESC LIMIT " + std::to_string(limit) +
+        " OFFSET " + std::to_string(offset);
+
+    for (const Row &row : db_->query(sql, {std::to_string(user_id)}))
+        page.items.push_back(rowToOrderSummary(row));
+    return page;
+}
+
 } // namespace ecshop::infra

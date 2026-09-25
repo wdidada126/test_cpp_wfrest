@@ -167,6 +167,34 @@ void registerOrderRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         }
         }
     });
+
+    // GET /api/v1/me/orders — own order summaries
+    sv.GET("/api/v1/me/orders",
+           [users, orders](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        api::PageQuery page;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        domain::OrderPage result = orders->listOfUser(*user_id, page.offset(), page.page_size);
+
+        wfrest::Json::Array items;
+        for (const domain::OrderSummary &order : result.items)
+            items.push_back(orderToJson(order));
+
+        api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
+    });
 }
 
 } // namespace ecshop::http

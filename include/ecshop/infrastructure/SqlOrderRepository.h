@@ -14,6 +14,7 @@ public:
 
     domain::PlaceOrderStatus placeOrder(const domain::PlaceOrderCommand &command,
                                         domain::OrderSummary &out) override;
+    domain::OrderPage listOfUser(int64_t user_id, int64_t offset, int64_t limit) override;
 
 private:
     std::string makeOrderSn();

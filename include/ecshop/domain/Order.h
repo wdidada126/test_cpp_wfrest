@@ -58,6 +58,12 @@ enum class PlaceOrderStatus
     EmptyCart,
 };
 
+struct OrderPage
+{
+    int64_t total = 0;
+    std::vector<OrderSummary> items;
+};
+
 class OrderRepository
 {
 public:
@@ -67,6 +73,8 @@ public:
     // writes order + order_goods snapshot and clears the cart.
     virtual PlaceOrderStatus placeOrder(const PlaceOrderCommand &command,
                                         OrderSummary &out) = 0;
+
+    virtual OrderPage listOfUser(int64_t user_id, int64_t offset, int64_t limit) = 0;
 };
 
 } // namespace ecshop::domain
