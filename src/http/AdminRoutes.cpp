@@ -1,6 +1,7 @@
 #include "ecshop/http/AdminRoutes.h"
 #include "ecshop/http/HttpUtil.h"
 #include "ecshop/infrastructure/SqlAdminGoodsRepository.h"
+#include "ecshop/infrastructure/SqlAdminOrderRepository.h"
 #include "ecshop/infrastructure/SqlAdminRepository.h"
 #include "ecshop/shared/Money.h"
 #include "ecshop/shared/Password.h"
@@ -529,6 +530,149 @@ void registerAdminRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
                          "goods_id=" + std::to_string(goods_id),
                          task_of(resp)->peer_addr());
         api::send(req, resp, ApiResponse::noContent());
+    });
+
+    auto admin_orders = std::make_shared<infra::SqlAdminOrderRepository>(db);
+
+    // GET /api/v1/admin/orders — all orders
+    sv.GET("/api/v1/admin/orders",
+           [admins, admin_orders](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        api::PageQuery page;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        domain::OrderPage result = admin_orders->list(page.offset(), page.page_size);
+
+        wfrest::Json::Array items;
+        for (const domain::OrderSummary &order : result.items)
+        {
+            wfrest::Json::Object obj;
+            obj.push_back("id", order.order_id);
+            obj.push_back("order_sn", order.order_sn);
+            obj.push_back("status", order.status);
+            obj.push_back("goods_amount", order.goods_amount);
+            obj.push_back("shipping_fee", order.shipping_fee);
+            obj.push_back("payment_fee", order.payment_fee);
+            obj.push_back("order_amount", order.order_amount);
+            obj.push_back("created_at", shared::isoUtc(
+                                            std::strtoll(order.created_at.c_str(), nullptr, 10)));
+            items.push_back(obj);
+        }
+
+        api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
+    });
+
+    // GET /api/v1/admin/orders/{id} — full order detail
+    sv.GET("/api/v1/admin/orders/{id}",
+           [admins, admin_orders](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t order_id = 0;
+        if (!api::parsePathId(req, "id", order_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        std::optional<domain::OrderDetail> order = admin_orders->find(order_id);
+        if (!order)
+        {
+            api::send(req, resp, ApiError::notFound("order not found"));
+            return;
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("id", order->order_id);
+        out.push_back("order_sn", order->order_sn);
+        out.push_back("status", order->status);
+        out.push_back("goods_amount", order->goods_amount);
+        out.push_back("shipping_fee", order->shipping_fee);
+        out.push_back("payment_fee", order->payment_fee);
+        out.push_back("order_amount", order->order_amount);
+        out.push_back("consignee", order->consignee);
+        out.push_back("address", order->address);
+        out.push_back("mobile", order->mobile);
+        out.push_back("shipping_id", order->shipping_id);
+        out.push_back("payment_id", order->payment_id);
+        out.push_back("remark", order->remark);
+        out.push_back("created_at",
+                      shared::isoUtc(std::strtoll(order->created_at.c_str(), nullptr, 10)));
+
+        wfrest::Json::Array items;
+        for (const domain::OrderGoods &goods : order->items)
+        {
+            wfrest::Json::Object item;
+            item.push_back("goods_id", goods.goods_id);
+            item.push_back("name", goods.name);
+            item.push_back("price", goods.price);
+            item.push_back("quantity", goods.quantity);
+            items.push_back(item);
+        }
+        out.push_back("items", items);
+        api::send(req, resp, ApiResponse::ok(out));
+    });
+
+    // POST /api/v1/admin/orders/{id}/shipping — paid -> shipped
+    sv.POST("/api/v1/admin/orders/{id}/shipping",
+            [admins, admin_orders](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t order_id = 0;
+        if (!api::parsePathId(req, "id", order_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        domain::OrderPatchStatus status = admin_orders->ship(order_id);
+        switch (status)
+        {
+        case domain::OrderPatchStatus::Ok:
+        {
+            wfrest::Json::Object out;
+            out.push_back("id", order_id);
+            out.push_back("status", "shipped");
+            api::send(req, resp, ApiResponse::ok(out));
+            return;
+        }
+        case domain::OrderPatchStatus::InvalidState:
+            api::send(req, resp, ApiError::invalidState("only paid orders can be shipped"));
+            return;
+        case domain::OrderPatchStatus::NotFound:
+        default:
+            api::send(req, resp, ApiError::notFound("order not found"));
+            return;
+        }
     });
 }
 
