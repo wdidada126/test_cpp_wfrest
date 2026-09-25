@@ -804,4 +804,158 @@ domain::SurplusResult SqlOrderRepository::payWithSurplus(int64_t user_id, int64_
     return result;
 }
 
+domain::OrderMergeStatus SqlOrderRepository::mergeOrders(int64_t user_id, int64_t from_order_id,
+                                                         int64_t to_order_id, OrderSummary &out)
+{
+    using domain::OrderMergeStatus;
+
+    if (from_order_id == to_order_id)
+        return domain::OrderMergeStatus::InvalidState;
+
+    const std::string order_t = db_->table("order_info");
+    const std::string order_goods_t = db_->table("order_goods");
+    const std::string balance_pay_t = db_->table("order_balance_payment");
+    const std::string action_t = db_->table("order_action");
+    bool sqlite = std::string(db_->driverName()) == "sqlite";
+
+    OrderMergeStatus status = OrderMergeStatus::NotFound;
+
+    db_->transaction([&] {
+        // both must be own pending_payment orders
+        std::vector<Row> orders = db_->query(
+            "SELECT order_id AS order_id, consignee AS consignee, address AS address,"
+            " mobile AS mobile, shipping_id AS shipping_id, pay_id AS pay_id,"
+            " goods_amount AS goods_amount, shipping_fee AS shipping_fee,"
+            " payment_fee AS payment_fee FROM " + order_t +
+                " WHERE user_id = ? AND order_status = 'pending_payment'"
+                " AND order_id IN (?, ?)",
+            {std::to_string(user_id), std::to_string(from_order_id),
+             std::to_string(to_order_id)});
+        if (orders.size() != 2)
+            return;
+
+        // merging requires unused account balance on both sides
+        for (int64_t id : {from_order_id, to_order_id})
+        {
+            std::vector<Row> paid = db_->query(
+                "SELECT paid_cents AS paid_cents FROM " + balance_pay_t +
+                    " WHERE order_id = ?",
+                {std::to_string(id)});
+            if (!paid.empty() && paid.front().getInt("paid_cents") > 0)
+            {
+                status = OrderMergeStatus::InvalidState;
+                return;
+            }
+        }
+
+        const Row *from_row = &orders.front();
+        const Row *to_row = &orders.back();
+
+        int64_t goods_cents = 0, shipping_cents = 0, payment_cents = 0;
+        for (const Row *row : {from_row, to_row})
+        {
+            int64_t v = 0;
+            std::string col_cost = row->get("goods_amount");
+            shared::Money::parse(shared::Money::normalize(col_cost), v);
+            goods_cents += v;
+            shared::Money::parse(shared::Money::normalize(row->get("shipping_fee")), v);
+            shipping_cents += v;
+            shared::Money::parse(shared::Money::normalize(row->get("payment_fee")), v);
+            payment_cents += v;
+        }
+
+        // new merged order from the "to" delivery snapshot
+        std::string order_sn = makeOrderSn();
+        db_->execute(
+            "INSERT INTO " + order_t +
+                " (order_sn, user_id, order_status, consignee, address, mobile,"
+                " shipping_id, pay_id, goods_amount, shipping_fee, payment_fee,"
+                " order_amount, idempotency_key, request_fingerprint, remark)"
+                " VALUES (?, ?, 'pending_payment', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')",
+            {order_sn, std::to_string(user_id), to_row->get("consignee"),
+             to_row->get("address"), to_row->get("mobile"),
+             to_row->get("shipping_id"), to_row->get("pay_id"),
+             shared::Money::format(goods_cents), shared::Money::format(shipping_cents),
+             shared::Money::format(payment_cents),
+             shared::Money::format(goods_cents + shipping_cents + payment_cents),
+             "merged-" + order_sn, "merged-" + order_sn});
+        int64_t merged_id = db_->lastInsertId();
+
+        // move both goods snapshots onto the merged order
+        for (int64_t old_id : {from_order_id, to_order_id})
+        {
+            std::vector<Row> snapshot = db_->query(
+                "SELECT goods_id AS goods_id, goods_name AS goods_name,"
+                " goods_number AS goods_number, goods_price AS goods_price FROM " +
+                    order_goods_t + " WHERE order_id = ?",
+                {std::to_string(old_id)});
+            for (const Row &item : snapshot)
+            {
+                if (sqlite)
+                {
+                    db_->execute("INSERT INTO " + order_goods_t +
+                                     " (order_id, goods_id, goods_name, goods_number,"
+                                     " goods_price) VALUES (?, ?, ?, ?, ?)",
+                                 {std::to_string(merged_id),
+                                  std::to_string(item.getInt("goods_id")),
+                                  item.get("goods_name"),
+                                  std::to_string(item.getInt("goods_number")),
+                                  item.get("goods_price")});
+                }
+                else
+                {
+                    db_->execute("INSERT INTO " + order_goods_t +
+                                     " (order_id, goods_id, goods_name, goods_number,"
+                                     " market_price, goods_price, goods_attr)"
+                                     " VALUES (?, ?, '', ?, ?, ?, 'merged', '')",
+                                 {std::to_string(merged_id),
+                                  std::to_string(item.getInt("goods_id")),
+                                  item.get("goods_name"),
+                                  std::to_string(item.getInt("goods_number")),
+                                  item.get("goods_price"), item.get("goods_price")});
+                }
+            }
+        }
+
+        // old audit rows are cleaned up inside the same transaction
+        db_->execute("DELETE FROM " + action_t +
+                         " WHERE order_id IN (?, ?)",
+                     {std::to_string(from_order_id), std::to_string(to_order_id)});
+
+        // mark both old orders so they can no longer be paid
+        for (int64_t old_id : {from_order_id, to_order_id})
+        {
+            db_->execute("UPDATE " + order_t + " SET order_status = 'merged' WHERE order_id = ?",
+                         {std::to_string(old_id)});
+        }
+
+        if (sqlite)
+        {
+            db_->execute("INSERT INTO " + action_t +
+                             " (order_id, actor_user_id, action, note)"
+                             " VALUES (?, ?, 'merge', '')",
+                         {std::to_string(merged_id), std::to_string(user_id)});
+        }
+        else
+        {
+            db_->execute("INSERT INTO " + action_t +
+                             " (order_id, actor_type, actor_id, action_note)"
+                             " VALUES (?, 'user', ?, 'merge')",
+                         {std::to_string(merged_id), std::to_string(user_id)});
+        }
+
+        out.order_id = merged_id;
+        out.order_sn = order_sn;
+        out.status = "pending_payment";
+        out.goods_amount = shared::Money::format(goods_cents);
+        out.shipping_fee = shared::Money::format(shipping_cents);
+        out.payment_fee = shared::Money::format(payment_cents);
+        out.order_amount = shared::Money::format(goods_cents + shipping_cents + payment_cents);
+        out.created_at = std::to_string(shared::nowUnix());
+        out.replayed = false;
+        status = OrderMergeStatus::Merged;
+    });
+    return status;
+}
+
 } // namespace ecshop::infra

@@ -29,6 +29,9 @@ public:
                                                  int64_t payment_id) override;
     domain::SurplusResult payWithSurplus(int64_t user_id, int64_t order_id,
                                          int64_t amount_cents) override;
+    domain::OrderMergeStatus mergeOrders(int64_t user_id, int64_t from_order_id,
+                                         int64_t to_order_id,
+                                         domain::OrderSummary &out) override;
 
 private:
     std::string makeOrderSn();

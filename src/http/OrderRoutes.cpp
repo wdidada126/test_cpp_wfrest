@@ -628,6 +628,58 @@ void registerOrderRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
             return;
         }
     });
+
+    // POST /api/v1/me/orders/merge — {"from_order_id":101,"to_order_id":102}
+    sv.POST("/api/v1/me/orders/merge",
+            [users, orders](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t from_order_id = 0, to_order_id = 0;
+        if (!api::readInt(body, "from_order_id", from_order_id) || from_order_id <= 0 ||
+            !api::readInt(body, "to_order_id", to_order_id) || to_order_id <= 0)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "from_order_id");
+            api::send(req, resp,
+                      ApiError::validationError("from_order_id and to_order_id are required",
+                                                details));
+            return;
+        }
+
+        domain::OrderSummary merged;
+        domain::OrderMergeStatus status =
+            orders->mergeOrders(*user_id, from_order_id, to_order_id, merged);
+        switch (status)
+        {
+        case domain::OrderMergeStatus::Merged:
+            api::send(req, resp, ApiResponse::created(orderToJson(merged)));
+            return;
+        case domain::OrderMergeStatus::InvalidState:
+            api::send(req, resp,
+                      ApiError::conflict("merge_conflict",
+                                         "orders must be distinct, own, pending_payment and "
+                                         "without balance usage"));
+            return;
+        case domain::OrderMergeStatus::NotFound:
+        default:
+            api::send(req, resp, ApiError::notFound("order not found"));
+            return;
+        }
+    });
 }
 
 } // namespace ecshop::http
