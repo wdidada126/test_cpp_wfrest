@@ -6,6 +6,8 @@
 #include "ecshop/infrastructure/SqlAdminOrderRepository.h"
 #include "ecshop/infrastructure/SqlAdminPaymentRepository.h"
 #include "ecshop/infrastructure/SqlAdminRepository.h"
+#include "ecshop/infrastructure/SqlAdminExtraRepository.h"
+#include "ecshop/shared/Money.h"
 #include "ecshop/shared/Money.h"
 #include "ecshop/shared/Password.h"
 #include "ecshop/shared/TimeUtil.h"
@@ -1447,6 +1449,325 @@ void registerAdminRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
                          "msg_id=" + std::to_string(msg_id),
                          task_of(resp)->peer_addr());
         api::send(req, resp, ApiResponse::noContent());
+    });
+
+    auto extra = std::make_shared<infra::SqlAdminExtraRepository>(db);
+
+    // GET /api/v1/admin/users — front-end user accounts
+    sv.GET("/api/v1/admin/users",
+           [admins, extra](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        api::PageQuery page;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        auto result = extra->listUsers(page.offset(), page.page_size);
+        wfrest::Json::Array items;
+        for (const auto &user : result.items)
+        {
+            wfrest::Json::Object obj;
+            obj.push_back("user_id", user.user_id);
+            obj.push_back("username", user.username);
+            obj.push_back("email", user.email);
+            obj.push_back("created_at",
+                          shared::isoUtc(std::strtoll(user.created_at.c_str(), nullptr, 10)));
+            items.push_back(obj);
+        }
+        api::send(req, resp, api::ApiResponse::ok(api::listBody(page, result.total, items)));
+    });
+
+    // PATCH /api/v1/admin/users/{id} — {"email":"..."}
+    sv.PATCH("/api/v1/admin/users/{id}",
+             [admins, extra](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req,admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        int64_t user_id = 0;
+        if (!api::parsePathId(req, "id", user_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp,
+                      ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        std::string email;
+        if (!api::readStr(body, "email", email) || email.find('@') == std::string::npos)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "email");
+            api::send(req, resp,
+                      ApiError::validationError("email must be a valid address", details));
+            return;
+        }
+        if (!extra->updateUserEmail(user_id, email))
+        {
+            api::send(req, resp, ApiError::notFound("user not found"));
+            return;
+        }
+        admins->writeLog(admin->admin_id, "patch_user", "user_id=" + std::to_string(user_id),
+                         task_of(resp)->peer_addr());
+        wfrest::Json::Object out;
+        out.push_back("user_id", user_id);
+        out.push_back("email", email);
+        api::send(req, resp, api::ApiResponse::ok(out));
+    });
+
+    // POST /api/v1/admin/promotions — create goods_activity row (0..2 types)
+    sv.POST("/api/v1/admin/promotions",
+            [admins, extra, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        std::string name;
+        if (!api::readStr(body, "name", name) || name.empty() || name.size() > 255)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "name");
+            api::send(req, resp, ApiError::validationError("name must be 1-255 bytes", details));
+            return;
+        }
+        int64_t act_type = 0, goods_id = 0;
+        // 0=snatch 1=group_buy 2=auction; exchange/package have dedicated flows
+        if (!api::readInt(body, "act_type", act_type) || act_type < 0 || act_type > 2)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "act_type");
+            api::send(req, resp, ApiError::validationError("act_type must be 0-2", details));
+            return;
+        }
+        if (!api::readInt(body, "goods_id", goods_id) || goods_id <= 0)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "goods_id");
+            api::send(req, resp, ApiError::validationError("goods_id is required", details));
+            return;
+        }
+        int64_t start_time = 0, end_time = 0;
+        if (!api::readInt(body, "start_time", start_time) || start_time < 0)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "start_time");
+            api::send(req, resp, ApiError::validationError("start_time is required", details));
+            return;
+        }
+        if (!api::readInt(body, "end_time", end_time) || end_time < start_time)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "end_time");
+            api::send(req, resp, ApiError::validationError("end_time must be >= start_time",
+                                                            details));
+            return;
+        }
+        std::string description, ext_info;
+        api::readStr(body, "description", description);
+        api::readStr(body, "ext_info", ext_info);
+
+        int64_t act_id = 0;
+        try
+        {
+            act_id = extra->createPromotion(name, description, act_type, goods_id, start_time,
+                                            end_time, ext_info);
+        }
+        catch (const infra::DbError &)
+        {
+            api::send(req, resp, ApiError::conflict("promotion_conflict", "promotion rejected"));
+            return;
+        }
+
+        admins->writeLog(admin->admin_id, "create_promotion",
+                         "act_id=" + std::to_string(act_id),
+                         task_of(resp)->peer_addr());
+        wfrest::Json::Object out;
+        out.push_back("act_id", act_id);
+        api::send(req, resp, api::ApiResponse::created(out));
+    });
+
+    // DELETE /api/v1/admin/promotions/{id}?act_type=N — remove by id (type bound)
+    sv.DELETE("/api/v1/admin/promotions/{id}",
+              [admins, extra, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        int64_t act_id = 0;
+        if (!api::parsePathId(req, "id", act_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp,
+                      ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+        int64_t act_type = 0;
+        const std::string &raw_type = req->query("act_type");
+        if (!raw_type.empty())
+        {
+            char *end = nullptr;
+            long long v = std::strtoll(raw_type.c_str(), &end, 10);
+            if (!end || *end != '\0' || v < 0 || v > 4)
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "act_type");
+                api::send(req, resp, ApiError::validationError("act_type must be 0-4", details));
+                return;
+            }
+            act_type = v;
+        }
+        if (!extra->deletePromotion(act_id, act_type))
+        {
+            api::send(req, resp, ApiError::notFound("promotion not found"));
+            return;
+        }
+        admins->writeLog(admin->admin_id, "delete_promotion",
+                         "act_id=" + std::to_string(act_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, api::ApiResponse::noContent());
+    });
+
+    // POST /api/v1/admin/account/requests/{id}/settle — deposit/withdrawal finish
+    sv.POST("/api/v1/admin/account/requests/{id}/settle",
+            [admins, extra, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        int64_t rec_id = 0;
+        if (!api::parsePathId(req, "id", rec_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp,
+                      ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+        std::optional<infra::SqlAdminExtraRepository::SettleRequest> request =
+            extra->findAccountRequest(rec_id);
+        if (!request)
+        {
+            api::send(req, resp, ApiError::notFound("request not found"));
+            return;
+        }
+
+        bool ok = false;
+        if (request->process_type == "deposit")
+            ok = extra->settleDeposit(rec_id, 0);
+        else if (request->process_type == "withdrawal")
+            ok = extra->settleWithdrawal(rec_id, 0);
+
+        if (!ok)
+        {
+            api::send(req, resp,
+                      ApiError::conflict("settle_conflict",
+                                         "request not in a settleable state"));
+            return;
+        }
+
+        std::string new_status = request->process_type == "deposit" ? "paid" : "disbursed";
+        admins->writeLog(admin->admin_id, "settle_request",
+                         "rec_id=" + std::to_string(rec_id) + " status=" + new_status,
+                         task_of(resp)->peer_addr());
+        wfrest::Json::Object out;
+        out.push_back("id", rec_id);
+        out.push_back("kind", request->process_type);
+        out.push_back("amount", shared::Money::format(request->amount_cents));
+        out.push_back("status", new_status);
+        api::send(req, resp, api::ApiResponse::ok(out));
+    });
+
+    // GET /api/v1/admin/logs — audit trail
+    sv.GET("/api/v1/admin/logs",
+           [admins](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        api::PageQuery page;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        std::vector<domain::AdminLogRow> all = admins->listLogs(page.offset(), page.page_size);
+        wfrest::Json::Array items;
+        for (const domain::AdminLogRow &row : all)
+        {
+            wfrest::Json::Object obj;
+            obj.push_back("log_id", row.log_id);
+            obj.push_back("admin_id", row.admin_id);
+            obj.push_back("admin_name", row.admin_name);
+            obj.push_back("action", row.action);
+            obj.push_back("detail", row.detail);
+            obj.push_back("ip_address", row.ip_address);
+            obj.push_back("created_at",
+                          shared::isoUtc(std::strtoll(row.created_at.c_str(), nullptr, 10)));
+            items.push_back(obj);
+        }
+        // total is capped at the visible number; broad counting is unnecessary
+        api::send(req, resp, api::ApiResponse::ok(
+                                 api::listBody(page, static_cast<int64_t>(items.size()), items)));
+    });
+
+    // GET /api/v1/admin/metrics — rough counters
+    sv.GET("/api/v1/admin/metrics",
+           [admins, extra](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        wfrest::Json::Object out;
+        out.push_back("users", extra->countUsers());
+        out.push_back("orders", extra->countOrders());
+        out.push_back("goods", extra->countGoodsAll());
+        out.push_back("paid_orders", extra->countRevenues());
+        api::send(req, resp, api::ApiResponse::ok(out));
     });
 }
 
