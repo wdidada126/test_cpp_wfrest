@@ -571,6 +571,73 @@ void registerMeRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         out.push_back("frozen_balance", result.balance.frozen);
         api::send(req, resp, ApiResponse::ok(out));
     });
+
+    // POST /api/v1/me/account/requests/{id}/payment — idempotent payment intent
+    sv.POST("/api/v1/me/account/requests/{id}/payment",
+            [users, account](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t request_id = 0;
+        if (!api::parsePathId(req, "id", request_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t payment_id = 0;
+        if (!api::readInt(body, "payment_id", payment_id) || payment_id <= 0)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "payment_id");
+            api::send(req, resp,
+                      ApiError::validationError("payment_id must be a positive integer", details));
+            return;
+        }
+
+        if (!account->paymentEnabled(payment_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "payment_id");
+            api::send(req, resp,
+                      ApiError::validationError("payment method is not enabled", details));
+            return;
+        }
+
+        std::optional<domain::PaymentIntent> intent =
+            account->createPaymentIntent(*user_id, request_id, payment_id);
+        if (!intent)
+        {
+            api::send(req, resp, ApiError::notFound("request not found or not payable"));
+            return;
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("intent_id", intent->intent_id);
+        out.push_back("request_id", intent->request_id);
+        out.push_back("payment_id", intent->payment_id);
+        out.push_back("amount", intent->amount);
+        out.push_back("fee", intent->fee);
+        out.push_back("total", intent->total);
+        out.push_back("currency", "CNY");
+        out.push_back("status", intent->status);
+        api::send(req, resp, ApiResponse::ok(out));
+    });
 }
 
 } // namespace ecshop::http

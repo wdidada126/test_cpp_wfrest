@@ -49,4 +49,15 @@ struct AccountRequestPage
     std::vector<AccountRequest> items;
 };
 
+struct PaymentIntent
+{
+    int64_t intent_id = 0;
+    int64_t request_id = 0;
+    int64_t payment_id = 0;
+    std::string amount; // decimal string
+    std::string fee;    // decimal string
+    std::string total;  // amount + fee
+    std::string status;
+};
+
 } // namespace ecshop::domain

@@ -1,5 +1,6 @@
 #include "ecshop/infrastructure/SqlAccountRepository.h"
 #include "ecshop/shared/Money.h"
+#include "ecshop/shared/TimeUtil.h"
 
 namespace ecshop::infra {
 
@@ -229,6 +230,81 @@ domain::AccountTransactionPage SqlAccountRepository::listTransactions(int64_t us
         page.items.push_back(std::move(item));
     }
     return page;
+}
+
+std::optional<domain::PaymentIntent> SqlAccountRepository::createPaymentIntent(
+    int64_t user_id, int64_t request_id, int64_t payment_id)
+{
+    std::string account_t = db_->table("user_account");
+    std::string payment_t = db_->table("payment");
+    std::string intent_t = db_->table("account_payment_intent");
+
+    std::optional<domain::PaymentIntent> result;
+    db_->transaction([&] {
+        std::vector<Row> requests = db_->query(
+            "SELECT rec_id AS rec_id, amount_cents AS amount_cents,"
+            " process_type AS process_type, status AS status FROM " + account_t +
+                " WHERE rec_id = ? AND user_id = ?",
+            {std::to_string(request_id), std::to_string(user_id)});
+        if (requests.empty())
+            return;
+
+        const Row &request = requests.front();
+        if (request.get("process_type") != "deposit" ||
+            request.get("status") != "pending_payment")
+            return;
+
+        std::vector<Row> payments = db_->query(
+            "SELECT pay_fee AS pay_fee FROM " + payment_t + " WHERE pay_id = ? AND enabled = 1",
+            {std::to_string(payment_id)});
+        if (payments.empty())
+            return;
+
+        int64_t amount_cents = request.getInt("amount_cents");
+        int64_t fee_cents = 0;
+        shared::Money::parse(payments.front().get("pay_fee"), fee_cents);
+
+        db_->execute("UPDATE " + account_t + " SET payment_id = ? WHERE rec_id = ? AND user_id = ?",
+                     {std::to_string(payment_id), std::to_string(request_id),
+                      std::to_string(user_id)});
+
+        int64_t now = shared::nowUnix();
+        int64_t intent_id = 0;
+        int64_t changed = db_->execute(
+            "UPDATE " + intent_t +
+                " SET payment_id = ?, fee_cents = ?, updated_at = ? WHERE request_id = ?",
+            {std::to_string(payment_id), std::to_string(fee_cents),
+             db_->datetimeFromUnix(now), std::to_string(request_id)});
+        if (changed > 0)
+        {
+            std::vector<Row> intents = db_->query(
+                "SELECT intent_id AS intent_id FROM " + intent_t + " WHERE request_id = ?",
+                {std::to_string(request_id)});
+            if (!intents.empty())
+                intent_id = intents.front().getInt("intent_id");
+        }
+        else
+        {
+            db_->execute("INSERT INTO " + intent_t +
+                             " (request_id, user_id, payment_id, amount_cents, fee_cents, status)"
+                             " VALUES (?, ?, ?, ?, ?, 'pending')",
+                         {std::to_string(request_id), std::to_string(user_id),
+                          std::to_string(payment_id), std::to_string(amount_cents),
+                          std::to_string(fee_cents)});
+            intent_id = db_->lastInsertId();
+        }
+
+        domain::PaymentIntent intent;
+        intent.intent_id = intent_id;
+        intent.request_id = request_id;
+        intent.payment_id = payment_id;
+        intent.amount = shared::Money::format(amount_cents);
+        intent.fee = shared::Money::format(fee_cents);
+        intent.total = shared::Money::format(amount_cents + fee_cents);
+        intent.status = "pending";
+        result = intent;
+    });
+    return result;
 }
 
 } // namespace ecshop::infra

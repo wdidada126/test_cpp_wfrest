@@ -38,6 +38,11 @@ public:
 
     virtual AccountTransactionPage listTransactions(int64_t user_id, int64_t offset,
                                                      int64_t limit) = 0;
+
+    // payment intent for an own pending_payment deposit request; idempotent per
+    // request (repeats update the same intent). nullopt when not payable.
+    virtual std::optional<PaymentIntent> createPaymentIntent(int64_t user_id, int64_t request_id,
+                                                             int64_t payment_id) = 0;
 };
 
 } // namespace ecshop::domain
