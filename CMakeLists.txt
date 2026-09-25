@@ -117,6 +117,7 @@ set(ECSHOP_SOURCES
     src/http/HttpUtil.cpp
     src/http/HealthRoutes.cpp
     src/http/CatalogRoutes.cpp
+    src/http/ArticleRoutes.cpp
     src/infrastructure/SqlCatalogRepository.cpp
     src/infrastructure/SqlArticleRepository.cpp
 )

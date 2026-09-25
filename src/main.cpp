@@ -1,4 +1,5 @@
 #include "ecshop/app/AppConfig.h"
+#include "ecshop/http/ArticleRoutes.h"
 #include "ecshop/http/CatalogRoutes.h"
 #include "ecshop/http/HealthRoutes.h"
 #include "ecshop/infrastructure/db/DbFactory.h"
@@ -37,6 +38,7 @@ int main(int argc, char **argv)
 
     ecshop::http::registerHealthRoutes(sv, db);
     ecshop::http::registerCatalogRoutes(sv, db);
+    ecshop::http::registerArticleRoutes(sv, db);
 
     // GET /ping -> pong
     sv.GET("/ping", [](const HttpReq *req, HttpResp *resp)
