@@ -518,6 +518,23 @@ void registerCatalogRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
         out.push_back("images", images);
         api::send(req, resp, ApiResponse::ok(out));
     });
+
+    // GET /api/v1/catalog — all visible categories and brands
+    sv.GET("/api/v1/catalog", [repo](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        wfrest::Json::Array categories;
+        for (const domain::CategorySummary &item : repo->listVisibleCategories())
+            categories.push_back(categoryToJson(item));
+
+        wfrest::Json::Array brands;
+        for (const domain::BrandSummary &item : repo->listVisibleBrands(0, 1000).items)
+            brands.push_back(brandToJson(item));
+
+        wfrest::Json::Object out;
+        out.push_back("categories", categories);
+        out.push_back("brands", brands);
+        api::send(req, resp, ApiResponse::ok(out));
+    });
 }
 
 } // namespace ecshop::http
