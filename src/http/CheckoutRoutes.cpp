@@ -3,11 +3,13 @@
 #include "ecshop/http/HttpUtil.h"
 #include "ecshop/infrastructure/SqlCartRepository.h"
 #include "ecshop/infrastructure/SqlCheckoutRepository.h"
+#include "ecshop/infrastructure/SqlRegionRepository.h"
 #include "ecshop/infrastructure/SqlUserRepository.h"
-
 #include "ecshop/shared/Money.h"
 
+#include <cstdlib>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace ecshop::http {
@@ -32,6 +34,7 @@ void registerCheckoutRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> d
     auto users = std::make_shared<infra::SqlUserRepository>(db);
     auto checkout = std::make_shared<infra::SqlCheckoutRepository>(db);
     auto cart = std::make_shared<infra::SqlCartRepository>(db);
+    auto regions = std::make_shared<infra::SqlRegionRepository>(db);
 
     // GET /api/v1/checkout/options — enabled shipping and payment methods
     sv.GET("/api/v1/checkout/options",
@@ -170,6 +173,138 @@ void registerCheckoutRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> d
         out.push_back("payment_fee", shared::Money::format(payment_cents));
         out.push_back("order_amount",
                       shared::Money::format(goods_cents + shipping_cents + payment_cents));
+        api::send(req, resp, ApiResponse::ok(out));
+    });
+
+    // GET /api/v1/shipping-options?country_id=&province_id=&city_id=&district_id=
+    // public myship.php equivalent; fee table is global for now (docs/03)
+    sv.GET("/api/v1/shipping-options",
+           [regions, checkout](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        int64_t country_id = 0, province_id = 0, city_id = 0, district_id = 0;
+        struct IdField
+        {
+            const char *name;
+            int64_t *target;
+        } fields[] = {
+            {"country_id", &country_id},
+            {"province_id", &province_id},
+            {"city_id", &city_id},
+            {"district_id", &district_id},
+        };
+        api::ApiResponse err;
+        for (const IdField &field : fields)
+        {
+            const std::string &raw = req->query(field.name);
+            if (raw.empty())
+                continue;
+            char *end = nullptr;
+            long long v = std::strtoll(raw.c_str(), &end, 10);
+            if (!end || *end != '\0' || v <= 0)
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", std::string(field.name));
+                api::send(req, resp,
+                          ApiError::validationError(std::string(field.name) +
+                                                    " must be a positive integer", details));
+                return;
+            }
+            *field.target = v;
+        }
+
+        // per-level parent legality checks (only for provided levels)
+        if (province_id > 0)
+        {
+            if (country_id <= 0)
+            {
+                api::send(req, resp,
+                          ApiError::validationError("province_id requires country_id"));
+                return;
+            }
+            std::optional<domain::Region> province = regions->find(province_id);
+            if (!province || province->parent_id != country_id)
+            {
+                api::send(req, resp,
+                          ApiError::validationError("province does not belong to country"));
+                return;
+            }
+        }
+        if (city_id > 0)
+        {
+            if (province_id <= 0)
+            {
+                api::send(req, resp, ApiError::validationError("city_id requires province_id"));
+                return;
+            }
+            std::optional<domain::Region> city = regions->find(city_id);
+            if (!city || city->parent_id != province_id)
+            {
+                api::send(req, resp,
+                          ApiError::validationError("city does not belong to province"));
+                return;
+            }
+        }
+        if (district_id > 0)
+        {
+            if (city_id <= 0)
+            {
+                api::send(req, resp,
+                          ApiError::validationError("district_id requires city_id"));
+                return;
+            }
+            std::optional<domain::Region> district = regions->find(district_id);
+            if (!district || district->parent_id != city_id)
+            {
+                api::send(req, resp,
+                          ApiError::validationError("district does not belong to city"));
+                return;
+            }
+        }
+
+        // pivot rows
+        auto regionArray = [](const std::vector<domain::Region> &items) {
+            wfrest::Json::Array arr;
+            for (const domain::Region &region : items)
+            {
+                wfrest::Json::Object it;
+                it.push_back("region_id", region.region_id);
+                it.push_back("name", region.name);
+                it.push_back("region_type", region.region_type);
+                arr.push_back(it);
+            }
+            return wfrest::Json(arr);
+        };
+
+        wfrest::Json::Object cascade;
+        cascade.push_back("countries", regionArray(regions->listChildren(0)));
+
+        if (country_id > 0)
+            cascade.push_back("provinces", regionArray(regions->listChildren(country_id)));
+        if (province_id > 0)
+            cascade.push_back("cities", regionArray(regions->listChildren(province_id)));
+        if (city_id > 0)
+            cascade.push_back("districts", regionArray(regions->listChildren(city_id)));
+
+        wfrest::Json::Object selected;
+        selected.push_back("country_id", country_id);
+        selected.push_back("province_id", province_id);
+        selected.push_back("city_id", city_id);
+        selected.push_back("district_id", district_id);
+
+        wfrest::Json::Array shipping;
+        for (const domain::ShippingOption &option : checkout->listShipping())
+        {
+            wfrest::Json::Object it;
+            it.push_back("shipping_id", option.shipping_id);
+            it.push_back("name", option.name);
+            it.push_back("fee", option.fee);
+            shipping.push_back(it);
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("selected", selected);
+        out.push_back("regions", cascade);
+        out.push_back("shipping", shipping);
         api::send(req, resp, ApiResponse::ok(out));
     });
 }

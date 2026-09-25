@@ -17,6 +17,9 @@ public:
                                    int64_t offset, int64_t limit) = 0;
 
     virtual std::optional<Region> find(int64_t region_id) = 0;
+
+    // direct children ordered by region id (shipping-options cascade)
+    virtual std::vector<Region> listChildren(int64_t parent_id) = 0;
 };
 
 } // namespace ecshop::domain
