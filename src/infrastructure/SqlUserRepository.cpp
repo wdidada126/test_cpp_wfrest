@@ -47,6 +47,17 @@ std::optional<User> SqlUserRepository::findByEmail(const std::string &email)
     return rowToUser(rows.front());
 }
 
+bool SqlUserRepository::updateEmail(int64_t user_id, const std::string &email)
+{
+    std::optional<User> owner = findByEmail(email);
+    if (owner && owner->user_id != user_id)
+        return false;
+
+    std::string sql = "UPDATE " + db_->table("users") + " SET email = ? WHERE user_id = ?";
+    db_->execute(sql, {email, std::to_string(user_id)});
+    return true;
+}
+
 std::optional<std::string> SqlUserRepository::passwordHashOf(int64_t user_id)
 {
     std::string sql = "SELECT password_hash AS password_hash FROM " + db_->table("users") +

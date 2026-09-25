@@ -19,6 +19,9 @@ public:
     virtual std::optional<User> findByUsername(const std::string &username) = 0;
     virtual std::optional<User> findByEmail(const std::string &email) = 0;
 
+    // profile updates; returns false when email is taken by another user
+    virtual bool updateEmail(int64_t user_id, const std::string &email) = 0;
+
     // password hash of the row, for verifyPassword()
     virtual std::optional<std::string> passwordHashOf(int64_t user_id) = 0;
 

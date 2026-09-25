@@ -6,6 +6,7 @@
 
 #include <cstdlib>
 #include <optional>
+#include <string>
 
 namespace ecshop::http {
 
@@ -35,6 +36,51 @@ void registerMeRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         if (!user_id)
         {
             api::send(req, resp, err);
+            return;
+        }
+
+        std::optional<domain::User> user = users->findById(*user_id);
+        if (!user)
+        {
+            api::send(req, resp, ApiError::unauthenticated("invalid or expired session"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::ok(userToJson(*user)));
+    });
+
+    // PATCH /api/v1/me — update profile (email)
+    sv.PATCH("/api/v1/me", [users](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string email;
+        if (!api::readStr(body, "email", email) || email.find('@') == std::string::npos ||
+            email.size() > 120)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "email");
+            api::send(req, resp,
+                      ApiError::validationError("email must be a valid address", details));
+            return;
+        }
+
+        if (!users->updateEmail(*user_id, email))
+        {
+            api::send(req, resp, ApiError::conflict("email_taken", "email is taken"));
             return;
         }
 

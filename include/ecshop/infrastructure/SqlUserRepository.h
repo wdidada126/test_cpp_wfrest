@@ -13,6 +13,7 @@ public:
     std::optional<domain::User> findById(int64_t user_id) override;
     std::optional<domain::User> findByUsername(const std::string &username) override;
     std::optional<domain::User> findByEmail(const std::string &email) override;
+    bool updateEmail(int64_t user_id, const std::string &email) override;
     std::optional<std::string> passwordHashOf(int64_t user_id) override;
     int64_t createUser(const std::string &username, const std::string &email,
                        const std::string &password_hash) override;
