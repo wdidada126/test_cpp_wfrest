@@ -15,7 +15,7 @@ std::vector<domain::Package> SqlPackageRepository::listActive(int64_t limit)
     // active packages in the current time window with visible goods
     std::string sql =
         "SELECT act_id AS act_id, act_name AS act_name, act_desc AS act_desc,"
-        " goods_number AS goods_number, start_time AS start_time, end_time AS end_time,"
+        " start_time AS start_time, end_time AS end_time,"
         " ext_info AS ext_info FROM " + activity_t +
         " WHERE act_type = 4 AND is_finished = 0 AND start_time <= " + db_->unixNow() +
         " AND end_time >= " + db_->unixNow() +
@@ -28,7 +28,7 @@ std::vector<domain::Package> SqlPackageRepository::listActive(int64_t limit)
         package.act_id = row.getInt("act_id");
         package.name = row.get("act_name");
         package.description = row.get("act_desc");
-        package.goods_number = row.getInt("goods_number");
+        package.goods_number = 0;
         package.start_time = shared::isoUtc(row.getInt("start_time"));
         package.end_time = shared::isoUtc(row.getInt("end_time"));
 
@@ -66,6 +66,7 @@ std::vector<domain::Package> SqlPackageRepository::listActive(int64_t limit)
             item.goods_id = item_row.getInt("goods_id");
             item.name = item_row.get("goods_name");
             item.quantity = item_row.getInt("goods_number");
+            package.goods_number += item.quantity;
             item.price = shared::Money::normalize(item_row.get("shop_price"));
 
             int64_t unit = 0;
