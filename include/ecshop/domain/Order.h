@@ -73,6 +73,26 @@ enum class OrderReturnStatus
     NothingToReturn,
 };
 
+enum class OrderPatchStatus
+{
+    Ok,
+    NotFound,
+    InvalidState,
+};
+
+// PATCH /me/orders/{id}/address fields (docs/03)
+struct DeliveryAddressPatch
+{
+    std::string consignee;
+    std::string email;
+    std::string address;
+    std::string zipcode;
+    std::string tel;
+    std::string mobile;
+    std::string sign_building;
+    std::string best_time;
+};
+
 struct OrderPage
 {
     int64_t total = 0;
@@ -110,6 +130,14 @@ public:
     // status query by order number, always scoped to the current user
     virtual std::optional<OrderSummary> findBySnOfUser(int64_t user_id,
                                                        const std::string &order_sn) = 0;
+
+    // PATCH /me/orders/{id}/address — pending_payment + unshipped only
+    virtual OrderPatchStatus updateAddressOfUser(int64_t user_id, int64_t order_id,
+                                                 const DeliveryAddressPatch &patch) = 0;
+
+    // PATCH /me/orders/{id}/payment — recompute fees; 400 on same method
+    virtual OrderPatchStatus updatePaymentOfUser(int64_t user_id, int64_t order_id,
+                                                 int64_t payment_id) = 0;
 };
 
 } // namespace ecshop::domain

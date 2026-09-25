@@ -527,4 +527,155 @@ std::optional<domain::OrderSummary> SqlOrderRepository::findBySnOfUser(int64_t u
     return rowToOrderSummary(rows.front());
 }
 
+domain::OrderPatchStatus SqlOrderRepository::updateAddressOfUser(
+    int64_t user_id, int64_t order_id, const domain::DeliveryAddressPatch &patch)
+{
+    const std::string order_t = db_->table("order_info");
+    const std::string detail_t = db_->table("order_delivery_address");
+    const std::string action_t = db_->table("order_action");
+    bool sqlite = std::string(db_->driverName()) == "sqlite";
+
+    domain::OrderPatchStatus status = domain::OrderPatchStatus::NotFound;
+
+    db_->transaction([&] {
+        std::vector<Row> rows = db_->query(
+            "SELECT order_id AS order_id, order_status AS order_status FROM " + order_t +
+                " WHERE order_id = ? AND user_id = ?",
+            {std::to_string(order_id), std::to_string(user_id)});
+        if (rows.empty())
+            return;
+
+        int64_t changed = db_->execute(
+            "UPDATE " + order_t +
+                " SET consignee = ?, address = ?, mobile = ? WHERE order_id = ? AND user_id = ?" +
+                std::string(" AND order_status = 'pending_payment'") +
+                (sqlite ? "" : " AND shipping_status = 'unshipped'"),
+            {patch.consignee, patch.address, patch.mobile, std::to_string(order_id),
+             std::to_string(user_id)});
+        if (changed == 0)
+        {
+            status = domain::OrderPatchStatus::InvalidState;
+            return;
+        }
+
+        // one-to-one delivery detail: replace, not merge
+        db_->execute("DELETE FROM " + detail_t + " WHERE order_id = ?",
+                     {std::to_string(order_id)});
+        db_->execute("INSERT INTO " + detail_t +
+                         " (order_id, user_id, email, zipcode, telephone, sign_building,"
+                         " best_time) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                     {std::to_string(order_id), std::to_string(user_id), patch.email,
+                      patch.zipcode, patch.tel, patch.sign_building, patch.best_time});
+
+        if (sqlite)
+        {
+            db_->execute("INSERT INTO " + action_t +
+                             " (order_id, actor_user_id, action, note)"
+                             " VALUES (?, ?, 'edit_address', '')",
+                         {std::to_string(order_id), std::to_string(user_id)});
+        }
+        else
+        {
+            db_->execute("INSERT INTO " + action_t +
+                             " (order_id, actor_type, actor_id, action_note)"
+                             " VALUES (?, 'user', ?, 'edit_address')",
+                         {std::to_string(order_id), std::to_string(user_id)});
+        }
+
+        status = domain::OrderPatchStatus::Ok;
+    });
+    return status;
+}
+
+domain::OrderPatchStatus SqlOrderRepository::updatePaymentOfUser(int64_t user_id,
+                                                                 int64_t order_id,
+                                                                 int64_t payment_id)
+{
+    const std::string order_t = db_->table("order_info");
+    const std::string payment_t = db_->table("payment");
+    const std::string action_t = db_->table("order_action");
+    bool sqlite = std::string(db_->driverName()) == "sqlite";
+
+    domain::OrderPatchStatus status = domain::OrderPatchStatus::NotFound;
+
+    db_->transaction([&] {
+        std::vector<Row> rows = db_->query(
+            "SELECT pay_id AS pay_id, order_amount AS order_amount FROM " + order_t +
+                " WHERE order_id = ? AND user_id = ? AND order_status = 'pending_payment'" +
+                std::string(sqlite ? "" : " AND shipping_status = 'unshipped'"),
+            {std::to_string(order_id), std::to_string(user_id)});
+        if (rows.empty())
+            return;
+
+        int64_t old_payment_id = rows.front().getInt("pay_id");
+        if (old_payment_id == payment_id)
+        {
+            status = domain::OrderPatchStatus::InvalidState; // unchanged method
+            return;
+        }
+
+        std::vector<Row> payments = db_->query(
+            "SELECT pay_fee AS pay_fee FROM " + payment_t + " WHERE pay_id = ? AND enabled = 1",
+            {std::to_string(payment_id)});
+        if (payments.empty())
+        {
+            status = domain::OrderPatchStatus::NotFound; // disabled/unknown method
+            return;
+        }
+
+        std::vector<Row> old_fees = db_->query(
+            "SELECT pay_fee AS pay_fee FROM " + payment_t + " WHERE pay_id = ?",
+            {std::to_string(old_payment_id)});
+        int64_t old_fee_cents = 0;
+        if (!old_fees.empty())
+            shared::Money::parse(shared::Money::normalize(old_fees.front().get("pay_fee")),
+                                 old_fee_cents);
+
+        int64_t order_cents = 0;
+        shared::Money::parse(shared::Money::normalize(rows.front().get("order_amount")),
+                             order_cents);
+        int64_t new_fee_cents = 0;
+        shared::Money::parse(shared::Money::normalize(payments.front().get("pay_fee")),
+                             new_fee_cents);
+
+        int64_t goods_unpaid_cents = order_cents - old_fee_cents;
+        if (goods_unpaid_cents < 0)
+            goods_unpaid_cents = 0;
+        int64_t new_order_cents = goods_unpaid_cents + new_fee_cents;
+
+        // conditional flip; a concurrent status change rolls everything back
+        int64_t changed = db_->execute(
+            "UPDATE " + order_t + " SET pay_id = ?, payment_fee = ?, order_amount = ?" +
+                std::string(" WHERE order_id = ? AND user_id = ?") +
+                std::string(" AND order_status = 'pending_payment'") +
+                std::string(sqlite ? "" : " AND shipping_status = 'unshipped'"),
+            {std::to_string(payment_id), shared::Money::format(new_fee_cents),
+             shared::Money::format(new_order_cents), std::to_string(order_id),
+             std::to_string(user_id)});
+        if (changed == 0)
+        {
+            status = domain::OrderPatchStatus::NotFound; // state changed concurrently
+            return;
+        }
+
+        if (sqlite)
+        {
+            db_->execute("INSERT INTO " + action_t +
+                             " (order_id, actor_user_id, action, note)"
+                             " VALUES (?, ?, 'edit_payment', '')",
+                         {std::to_string(order_id), std::to_string(user_id)});
+        }
+        else
+        {
+            db_->execute("INSERT INTO " + action_t +
+                             " (order_id, actor_type, actor_id, action_note)"
+                             " VALUES (?, 'user', ?, 'edit_payment')",
+                         {std::to_string(order_id), std::to_string(user_id)});
+        }
+
+        status = domain::OrderPatchStatus::Ok;
+    });
+    return status;
+}
+
 } // namespace ecshop::infra
