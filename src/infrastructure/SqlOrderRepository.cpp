@@ -237,4 +237,49 @@ domain::OrderPage SqlOrderRepository::listOfUser(int64_t user_id, int64_t offset
     return page;
 }
 
+std::optional<domain::OrderDetail> SqlOrderRepository::findOfUser(int64_t user_id,
+                                                                  int64_t order_id)
+{
+    const std::string order_t = db_->table("order_info");
+    const std::string order_time = db_->orderTimeCol();
+
+    std::string sql =
+        "SELECT order_id AS order_id, order_sn AS order_sn, order_status AS order_status,"
+        " goods_amount AS goods_amount, shipping_fee AS shipping_fee,"
+        " payment_fee AS payment_fee, order_amount AS order_amount,"
+        " consignee AS consignee, address AS address, mobile AS mobile,"
+        " shipping_id AS shipping_id, pay_id AS pay_id, remark AS remark," +
+        db_->toUnix(order_time) + " AS created_at FROM " + order_t +
+        " WHERE order_id = ? AND user_id = ?";
+
+    std::vector<Row> rows = db_->query(sql, {std::to_string(order_id), std::to_string(user_id)});
+    if (rows.empty())
+        return std::nullopt;
+
+    const Row &row = rows.front();
+    domain::OrderDetail detail = rowToOrderSummary(row);
+    detail.consignee = row.get("consignee");
+    detail.address = row.get("address");
+    detail.mobile = row.get("mobile");
+    detail.shipping_id = row.getInt("shipping_id");
+    detail.payment_id = row.getInt("pay_id");
+    detail.remark = row.get("remark");
+
+    // goods snapshot columns shared by both schemas
+    std::string goods_sql =
+        "SELECT goods_id AS goods_id, goods_name AS goods_name,"
+        " goods_number AS goods_number, goods_price AS goods_price FROM " +
+        db_->table("order_goods") + " WHERE order_id = ? ORDER BY rec_id";
+    for (const Row &goods_row : db_->query(goods_sql, {std::to_string(order_id)}))
+    {
+        domain::OrderGoods goods;
+        goods.goods_id = goods_row.getInt("goods_id");
+        goods.name = goods_row.get("goods_name");
+        goods.price = shared::Money::normalize(goods_row.get("goods_price"));
+        goods.quantity = goods_row.getInt("goods_number");
+        detail.items.push_back(std::move(goods));
+    }
+    return detail;
+}
+
 } // namespace ecshop::infra

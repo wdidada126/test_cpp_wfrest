@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -75,6 +76,9 @@ public:
                                         OrderSummary &out) = 0;
 
     virtual OrderPage listOfUser(int64_t user_id, int64_t offset, int64_t limit) = 0;
+
+    // nullopt when the order does not belong to this user
+    virtual std::optional<OrderDetail> findOfUser(int64_t user_id, int64_t order_id) = 0;
 };
 
 } // namespace ecshop::domain

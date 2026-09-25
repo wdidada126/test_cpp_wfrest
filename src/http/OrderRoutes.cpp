@@ -30,6 +30,38 @@ static wfrest::Json orderToJson(const domain::OrderSummary &order)
     return obj;
 }
 
+static wfrest::Json orderDetailToJson(const domain::OrderDetail &order)
+{
+    wfrest::Json::Object obj;
+    obj.push_back("id", order.order_id);
+    obj.push_back("order_sn", order.order_sn);
+    obj.push_back("status", order.status);
+    obj.push_back("goods_amount", order.goods_amount);
+    obj.push_back("shipping_fee", order.shipping_fee);
+    obj.push_back("payment_fee", order.payment_fee);
+    obj.push_back("order_amount", order.order_amount);
+    obj.push_back("replayed", order.replayed);
+    obj.push_back("consignee", order.consignee);
+    obj.push_back("address", order.address);
+    obj.push_back("mobile", order.mobile);
+    obj.push_back("shipping_id", order.shipping_id);
+    obj.push_back("payment_id", order.payment_id);
+    obj.push_back("remark", order.remark);
+
+    wfrest::Json::Array items;
+    for (const domain::OrderGoods &goods : order.items)
+    {
+        wfrest::Json::Object item;
+        item.push_back("goods_id", goods.goods_id);
+        item.push_back("name", goods.name);
+        item.push_back("price", goods.price);
+        item.push_back("quantity", goods.quantity);
+        items.push_back(item);
+    }
+    obj.push_back("items", items);
+    return obj;
+}
+
 void registerOrderRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 {
     auto users = std::make_shared<infra::SqlUserRepository>(db);
@@ -194,6 +226,37 @@ void registerOrderRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
             items.push_back(orderToJson(order));
 
         api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
+    });
+
+    // GET /api/v1/me/orders/{id} — order detail with goods snapshot
+    sv.GET("/api/v1/me/orders/{id}",
+           [users, orders](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t order_id = 0;
+        if (!api::parsePathId(req, "id", order_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        std::optional<domain::OrderDetail> order = orders->findOfUser(*user_id, order_id);
+        if (!order)
+        {
+            api::send(req, resp, ApiError::notFound("order not found"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::ok(orderDetailToJson(*order)));
     });
 }
 
