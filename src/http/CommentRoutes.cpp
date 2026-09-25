@@ -72,6 +72,71 @@ void registerCommentRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
         api::send(req, resp,
                   ApiResponse::ok(api::listBody(page, comments->countOfGoods(goods_id), items)));
     });
+
+    // POST /api/v1/goods/{id}/comments — create a comment (auto-published)
+    sv.POST("/api/v1/goods/{id}/comments",
+            [users, catalog, comments](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t goods_id = 0;
+        if (!api::parsePathId(req, "id", goods_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string content;
+        if (!api::readStr(body, "content", content) || content.empty() || content.size() > 2000)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "content");
+            api::send(req, resp,
+                      ApiError::validationError("content must be 1-2000 bytes", details));
+            return;
+        }
+
+        std::optional<domain::Goods> goods = catalog->findVisibleGoods(goods_id);
+        if (!goods)
+        {
+            api::send(req, resp, ApiError::notFound("goods not found"));
+            return;
+        }
+
+        std::optional<domain::User> user = users->findById(*user_id);
+        if (!user)
+        {
+            api::send(req, resp, ApiError::unauthenticated("invalid or expired session"));
+            return;
+        }
+
+        if (!comments->add(goods_id, *user_id, user->username, content))
+        {
+            api::send(req, resp, ApiError::notFound("goods not found"));
+            return;
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("goods_id", goods_id);
+        out.push_back("user_name", user->username);
+        out.push_back("content", content);
+        api::send(req, resp, ApiResponse::created(out));
+    });
 }
 
 } // namespace ecshop::http
