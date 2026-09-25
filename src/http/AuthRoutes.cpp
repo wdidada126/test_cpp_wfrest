@@ -155,6 +155,46 @@ void registerAuthRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         out.push_back("available", !users->findByEmail(email).has_value());
         api::send(req, resp, ApiResponse::ok(out));
     });
+
+    // POST /api/v1/auth/login
+    sv.POST("/api/v1/auth/login", [users](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        wfrest::Json body;
+        api::ApiResponse err;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string username, password;
+        if (!api::readStr(body, "username", username) || username.empty() ||
+            !api::readStr(body, "password", password) || password.empty())
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "username");
+            api::send(req, resp,
+                      ApiError::validationError("username and password are required", details));
+            return;
+        }
+
+        std::optional<domain::User> user = users->findByUsername(username);
+        std::optional<std::string> hash =
+            user ? users->passwordHashOf(user->user_id) : std::nullopt;
+        if (!user || !hash || !shared::verifyPassword(password, *hash))
+        {
+            api::send(req, resp, ApiError::unauthenticated("invalid username or password"));
+            return;
+        }
+
+        std::string token = api::issueToken(users, user->user_id);
+
+        wfrest::Json::Object out;
+        out.push_back("user_id", user->user_id);
+        out.push_back("username", user->username);
+        out.push_back("access_token", token);
+        api::send(req, resp, ApiResponse::ok(out));
+    });
 }
 
 } // namespace ecshop::http
