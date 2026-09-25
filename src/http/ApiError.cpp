@@ -18,6 +18,14 @@ ApiResponse ApiResponse::created(wfrest::Json body)
     return res;
 }
 
+ApiResponse ApiResponse::accepted(wfrest::Json body)
+{
+    ApiResponse res;
+    res.status = 202;
+    res.body = std::move(body);
+    return res;
+}
+
 ApiResponse ApiResponse::noContent()
 {
     ApiResponse res;

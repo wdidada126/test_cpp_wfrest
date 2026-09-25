@@ -22,6 +22,11 @@ public:
     std::string productAttrCol() const override { return "goods_attr"; }
     std::string unixNow() const override { return "unixepoch()"; }
     std::string toUnix(const std::string &expr) const override { return expr; }
+    std::string nowExpr() const override { return "unixepoch()"; }
+    std::string datetimeFromUnix(int64_t unix_seconds) const override
+    {
+        return std::to_string(unix_seconds);
+    }
     std::string galleryThumb(const std::string &alias) const override { return alias + ".thumb_url"; }
     std::string galleryOriginal(const std::string &alias) const override { return alias + ".img_original"; }
     const char *driverName() const override { return "sqlite"; }

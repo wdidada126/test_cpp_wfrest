@@ -1,6 +1,7 @@
 #include "ecshop/http/MeRoutes.h"
 #include "ecshop/http/AuthUtil.h"
 #include "ecshop/http/HttpUtil.h"
+#include "ecshop/infrastructure/SqlAccountTokenRepository.h"
 #include "ecshop/infrastructure/SqlBonusRepository.h"
 #include "ecshop/infrastructure/SqlUserRepository.h"
 #include "ecshop/shared/Password.h"
@@ -31,6 +32,7 @@ void registerMeRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 {
     auto users = std::make_shared<infra::SqlUserRepository>(db);
     auto bonuses = std::make_shared<infra::SqlBonusRepository>(db);
+    auto tokens = std::make_shared<infra::SqlAccountTokenRepository>(db);
 
     // GET /api/v1/me — current user profile
     sv.GET("/api/v1/me", [users](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
@@ -302,6 +304,38 @@ void registerMeRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         }
 
         api::send(req, resp, ApiResponse::ok(api::listBody(page, total, items)));
+    });
+
+    // POST /api/v1/me/email-verifications — queue a verification email
+    sv.POST("/api/v1/me/email-verifications",
+            [users, tokens](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::optional<domain::User> user = users->findById(*user_id);
+        if (!user)
+        {
+            api::send(req, resp, ApiError::unauthenticated("invalid or expired session"));
+            return;
+        }
+
+        // plaintext token goes only to the outbox payload, never to the response
+        std::string token = shared::randomTokenHex(32);
+        int64_t expires_at = shared::nowUnix() + 24 * 3600;
+
+        tokens->replaceEmailVerification(*user_id, shared::sha256Hex(token), expires_at);
+        tokens->queueEmail(*user_id, user->email, "verify_email",
+                           "{\"token\":\"" + token + "\"}");
+
+        wfrest::Json::Object out;
+        out.push_back("status", "queued");
+        api::send(req, resp, ApiResponse::accepted(out));
     });
 }
 

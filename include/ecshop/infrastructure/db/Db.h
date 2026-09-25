@@ -107,6 +107,13 @@ public:
     // date/time column -> unix seconds expression (columns keep raw text in rows)
     virtual std::string toUnix(const std::string &expr) const = 0;
 
+    // current time as a value comparable with a date/time column
+    virtual std::string nowExpr() const = 0;
+
+    // unix seconds -> text to bind into a date/time column (sqlite: int text,
+    // mysql: "YYYY-MM-DD HH:MM:SS")
+    virtual std::string datetimeFromUnix(int64_t unix_seconds) const = 0;
+
     // goods_gallery extra image columns (mysql schema only has img_url)
     virtual std::string galleryThumb(const std::string &alias) const = 0;
     virtual std::string galleryOriginal(const std::string &alias) const = 0;

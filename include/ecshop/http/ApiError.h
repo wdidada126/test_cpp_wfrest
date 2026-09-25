@@ -24,6 +24,7 @@ struct ApiResponse
 
     static ApiResponse ok(wfrest::Json body);
     static ApiResponse created(wfrest::Json body);
+    static ApiResponse accepted(wfrest::Json body);
     static ApiResponse noContent();
 };
 

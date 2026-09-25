@@ -2,7 +2,9 @@
 
 #include <mysql.h>
 
+#include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <memory>
 #include <vector>
 
@@ -185,6 +187,23 @@ int64_t MysqlDb::execute(const std::string &sql, const Params &params)
 
     last_insert_id_ = static_cast<int64_t>(mysql_stmt_insert_id(guard.stmt));
     return static_cast<int64_t>(mysql_stmt_affected_rows(guard.stmt));
+}
+
+std::string MysqlDb::datetimeFromUnix(int64_t unix_seconds) const
+{
+    time_t t = static_cast<time_t>(unix_seconds);
+    struct tm tm_utc {};
+#if defined(_WIN32)
+    gmtime_s(&tm_utc, &t);
+#else
+    gmtime_r(&t, &tm_utc);
+#endif
+
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
+                  tm_utc.tm_year + 1900, tm_utc.tm_mon + 1, tm_utc.tm_mday,
+                  tm_utc.tm_hour, tm_utc.tm_min, tm_utc.tm_sec);
+    return std::string(buf);
 }
 
 int64_t MysqlDb::lastInsertId()

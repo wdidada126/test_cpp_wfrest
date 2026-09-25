@@ -128,6 +128,7 @@ set(ECSHOP_SOURCES
     src/infrastructure/SqlRegionRepository.cpp
     src/infrastructure/SqlUserRepository.cpp
     src/infrastructure/SqlBonusRepository.cpp
+    src/infrastructure/SqlAccountTokenRepository.cpp
 )
 
 add_executable(wfrest_server ${ECSHOP_SOURCES})
