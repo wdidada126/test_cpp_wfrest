@@ -535,6 +535,83 @@ void registerCatalogRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
         out.push_back("brands", brands);
         api::send(req, resp, ApiResponse::ok(out));
     });
+
+    // GET /api/v1/compare?goods_ids=12,14 — compare 2-4 visible goods
+    sv.GET("/api/v1/compare", [repo](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        const std::string &raw = req->query("goods_ids");
+
+        std::vector<int64_t> ids;
+        size_t start = 0;
+        while (start < raw.size())
+        {
+            size_t comma = raw.find(',', start);
+            std::string part =
+                raw.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+
+            char *end = nullptr;
+            long long v = std::strtoll(part.c_str(), &end, 10);
+            if (part.empty() || !end || *end != '\0' || v <= 0)
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "goods_ids");
+                api::send(req, resp,
+                          ApiError::validationError("goods_ids must be positive integers",
+                                                    details));
+                return;
+            }
+            if (std::find(ids.begin(), ids.end(), static_cast<int64_t>(v)) != ids.end())
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "goods_ids");
+                api::send(req, resp,
+                          ApiError::validationError("goods_ids must be unique", details));
+                return;
+            }
+            ids.push_back(v);
+
+            if (comma == std::string::npos)
+                break;
+            start = comma + 1;
+        }
+
+        if (ids.size() < 2 || ids.size() > 4)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "goods_ids");
+            api::send(req, resp,
+                      ApiError::validationError("goods_ids accepts 2-4 goods", details));
+            return;
+        }
+
+        wfrest::Json::Array items;
+        for (int64_t goods_id : ids)
+        {
+            // any invisible goods hides the whole comparison (docs/03)
+            std::optional<domain::Goods> goods = repo->findVisibleGoods(goods_id);
+            if (!goods)
+            {
+                api::send(req, resp, ApiError::notFound("goods not found"));
+                return;
+            }
+
+            wfrest::Json::Object item;
+            item.push_back("goods_id", goods->goods_id);
+            item.push_back("goods_sn", goods->goods_sn);
+            item.push_back("name", goods->name);
+            item.push_back("brief", goods->brief);
+            item.push_back("price", goods->price);
+            item.push_back("market_price", goods->market_price);
+            item.push_back("stock_available", goods->stock_available);
+            item.push_back("category", goods->category_name);
+            item.push_back("brand", goods->brand_name);
+            items.push_back(item);
+        }
+
+        api::PageQuery page;
+        api::send(req, resp,
+                  ApiResponse::ok(api::listBody(page, static_cast<int64_t>(ids.size()), items)));
+    });
 }
 
 } // namespace ecshop::http
