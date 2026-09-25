@@ -66,6 +66,13 @@ enum class OrderCancelStatus
     InvalidState,
 };
 
+enum class OrderReturnStatus
+{
+    Ok,
+    NotFound,
+    NothingToReturn,
+};
+
 struct OrderPage
 {
     int64_t total = 0;
@@ -95,6 +102,10 @@ public:
     // confirm receipt: paid -> received with an audit row
     virtual OrderCancelStatus receivedOfUser(int64_t user_id, int64_t order_id,
                                              OrderSummary &out) = 0;
+
+    // merge the order's goods snapshot back into the user's cart, capped at the
+    // current saleable stock
+    virtual OrderReturnStatus returnToCart(int64_t user_id, int64_t order_id) = 0;
 };
 
 } // namespace ecshop::domain

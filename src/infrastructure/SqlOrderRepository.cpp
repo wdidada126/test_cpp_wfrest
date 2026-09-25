@@ -436,4 +436,75 @@ domain::OrderCancelStatus SqlOrderRepository::receivedOfUser(int64_t user_id, in
     return status;
 }
 
+domain::OrderReturnStatus SqlOrderRepository::returnToCart(int64_t user_id, int64_t order_id)
+{
+    const std::string order_t = db_->table("order_info");
+    const std::string order_goods_t = db_->table("order_goods");
+    const std::string goods_t = db_->table("goods");
+    const std::string cart_t = db_->table("cart");
+
+    domain::OrderReturnStatus status = domain::OrderReturnStatus::NotFound;
+
+    db_->transaction([&] {
+        std::vector<Row> orders = db_->query(
+            "SELECT order_id AS order_id FROM " + order_t +
+                " WHERE order_id = ? AND user_id = ?",
+            {std::to_string(order_id), std::to_string(user_id)});
+        if (orders.empty())
+            return;
+
+        bool any = false;
+        std::vector<Row> snapshot = db_->query(
+            "SELECT goods_id AS goods_id, goods_number AS goods_number FROM " + order_goods_t +
+                " WHERE order_id = ?",
+            {std::to_string(order_id)});
+        for (const Row &item : snapshot)
+        {
+            // cap at current saleable stock
+            std::vector<Row> goods = db_->query(
+                "SELECT goods_number AS goods_number FROM " + goods_t +
+                    " WHERE goods_id = ? AND is_on_sale = 1 AND is_delete = 0",
+                {std::to_string(item.getInt("goods_id"))});
+            if (goods.empty() || goods.front().getInt("goods_number") <= 0)
+                continue;
+
+            int64_t want = item.getInt("goods_number");
+            int64_t available = goods.front().getInt("goods_number");
+            int64_t quantity = want < available ? want : available;
+
+            // portable upsert: accumulate if the row exists, insert otherwise
+            int64_t changed = db_->execute(
+                "UPDATE " + cart_t +
+                    " SET goods_number = goods_number + ?, version = version + 1"
+                    " WHERE user_id = ? AND goods_id = ?",
+                {std::to_string(quantity), std::to_string(user_id),
+                 std::to_string(item.getInt("goods_id"))});
+            if (changed == 0)
+            {
+                try
+                {
+                    db_->execute("INSERT INTO " + cart_t +
+                                     " (user_id, goods_id, goods_number, version)"
+                                     " VALUES (?, ?, ?, 1)",
+                                 {std::to_string(user_id),
+                                  std::to_string(item.getInt("goods_id")),
+                                  std::to_string(quantity)});
+                }
+                catch (const DbError &)
+                {
+                    db_->execute("UPDATE " + cart_t +
+                                     " SET goods_number = goods_number + ?, version = version + 1"
+                                     " WHERE user_id = ? AND goods_id = ?",
+                                 {std::to_string(quantity), std::to_string(user_id),
+                                  std::to_string(item.getInt("goods_id"))});
+                }
+            }
+            any = true;
+        }
+
+        status = any ? domain::OrderReturnStatus::Ok : domain::OrderReturnStatus::NothingToReturn;
+    });
+    return status;
+}
+
 } // namespace ecshop::infra

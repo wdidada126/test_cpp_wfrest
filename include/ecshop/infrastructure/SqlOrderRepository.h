@@ -20,6 +20,7 @@ public:
                                            domain::OrderSummary &out) override;
     domain::OrderCancelStatus receivedOfUser(int64_t user_id, int64_t order_id,
                                              domain::OrderSummary &out) override;
+    domain::OrderReturnStatus returnToCart(int64_t user_id, int64_t order_id) override;
 
 private:
     std::string makeOrderSn();
