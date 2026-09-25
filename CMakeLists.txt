@@ -109,11 +109,13 @@ set(ECSHOP_SOURCES
     src/main.cpp
     src/app/AppConfig.cpp
     src/shared/Money.cpp
+    src/shared/Password.cpp
     src/shared/TimeUtil.cpp
     src/infrastructure/db/SqliteDb.cpp
     src/infrastructure/db/MysqlDb.cpp
     src/infrastructure/db/DbFactory.cpp
     src/http/ApiError.cpp
+    src/http/AuthUtil.cpp
     src/http/HttpUtil.cpp
     src/http/HealthRoutes.cpp
     src/http/CatalogRoutes.cpp
@@ -122,6 +124,7 @@ set(ECSHOP_SOURCES
     src/infrastructure/SqlCatalogRepository.cpp
     src/infrastructure/SqlArticleRepository.cpp
     src/infrastructure/SqlRegionRepository.cpp
+    src/infrastructure/SqlUserRepository.cpp
 )
 
 add_executable(wfrest_server ${ECSHOP_SOURCES})
