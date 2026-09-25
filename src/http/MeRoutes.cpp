@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace ecshop::http {
 
@@ -241,6 +242,66 @@ void registerMeRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         }
 
         api::send(req, resp, ApiResponse::noContent());
+    });
+
+    // GET /api/v1/me/bonuses — bonuses claimed by the current user
+    sv.GET("/api/v1/me/bonuses",
+           [users, bonuses](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        api::PageQuery page;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::vector<domain::BonusRecord> all = bonuses->listOfUser(*user_id);
+        int64_t total = static_cast<int64_t>(all.size());
+
+        int64_t now = shared::nowUnix();
+        wfrest::Json::Array items;
+        int64_t index = 0;
+        for (const domain::BonusRecord &bonus : all)
+        {
+            if (index < page.offset())
+            {
+                ++index;
+                continue;
+            }
+            if (index >= page.offset() + page.page_size)
+                break;
+            ++index;
+
+            std::string status = "available";
+            if (bonus.order_id > 0)
+                status = "used";
+            else if (bonus.use_end_date > 0 && now > bonus.use_end_date)
+                status = "expired";
+            else if (bonus.use_start_date > 0 && now < bonus.use_start_date)
+                status = "not_started";
+
+            wfrest::Json::Object item;
+            item.push_back("bonus_id", bonus.bonus_id);
+            item.push_back("bonus_sn", bonus.bonus_sn);
+            item.push_back("money", bonus.money);
+            item.push_back("currency", "CNY");
+            item.push_back("status", status);
+            item.push_back("use_start_date", shared::isoUtc(bonus.use_start_date));
+            item.push_back("use_end_date", shared::isoUtc(bonus.use_end_date));
+            if (status == "used")
+                item.push_back("order_id", bonus.order_id);
+            items.push_back(item);
+        }
+
+        api::send(req, resp, ApiResponse::ok(api::listBody(page, total, items)));
     });
 }
 
