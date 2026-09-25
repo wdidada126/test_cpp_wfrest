@@ -48,6 +48,14 @@ public:
     // goods + SKU quote lines for GET /api/v1/quotation
     virtual QuotationPage listQuotation(const GoodsFilter &filter, int64_t offset,
                                         int64_t limit) = 0;
+
+    // intro_type: is_best|is_new|is_hot|is_promote|is_random
+    virtual std::vector<GoodsSummary> listByIntroType(const std::string &intro_type,
+                                                      int64_t limit) = 0;
+
+    // newest public goods for sitemap/feed (limit <= 300)
+    virtual std::vector<GoodsSummary> listPublicGoods(const GoodsFilter &filter,
+                                                      int64_t limit) = 0;
 };
 
 } // namespace ecshop::domain

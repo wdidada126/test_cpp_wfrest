@@ -451,4 +451,73 @@ domain::QuotationPage SqlCatalogRepository::listQuotation(const domain::GoodsFil
     return page;
 }
 
+static domain::GoodsSummary rowToSummary(const Row &row)
+{
+    domain::GoodsSummary item;
+    item.goods_id = row.getInt("goods_id");
+    item.goods_sn = row.get("goods_sn");
+    item.name = row.get("goods_name");
+    item.brief = row.get("goods_brief");
+    item.price = shared::Money::normalize(row.get("shop_price"));
+    item.market_price = shared::Money::normalize(row.get("market_price"));
+    return item;
+}
+
+std::vector<domain::GoodsSummary> SqlCatalogRepository::listByIntroType(const std::string &intro_type,
+                                                                       int64_t limit)
+{
+    std::string where = "g.is_on_sale = 1 AND g.is_delete = 0";
+    std::string order_by = " ORDER BY g.goods_id DESC";
+    if (intro_type == "is_best" || intro_type == "is_new" || intro_type == "is_hot" ||
+        intro_type == "is_promote")
+    {
+        where += " AND g." + intro_type + " = 1";
+    }
+    else if (intro_type == "is_random")
+    {
+        order_by = " ORDER BY " + db_->randomOrderExpr();
+    }
+
+    std::string sql =
+        "SELECT g.goods_id AS goods_id, g.goods_sn AS goods_sn,"
+        " g.goods_name AS goods_name, g.goods_brief AS goods_brief,"
+        " g.shop_price AS shop_price, g.market_price AS market_price"
+        " FROM " + db_->table("goods") + " g WHERE " + where + order_by +
+        " LIMIT " + std::to_string(limit);
+
+    std::vector<domain::GoodsSummary> items;
+    for (const Row &r : db_->query(sql, {}))
+        items.push_back(rowToSummary(r));
+    return items;
+}
+
+std::vector<domain::GoodsSummary> SqlCatalogRepository::listPublicGoods(
+    const domain::GoodsFilter &filter, int64_t limit)
+{
+    std::string where = "g.is_on_sale = 1 AND g.is_delete = 0";
+    Params params;
+    if (filter.category_id > 0)
+    {
+        where += " AND g.cat_id = ?";
+        params.push_back(std::to_string(filter.category_id));
+    }
+    if (filter.brand_id > 0)
+    {
+        where += " AND g.brand_id = ?";
+        params.push_back(std::to_string(filter.brand_id));
+    }
+
+    std::string sql =
+        "SELECT g.goods_id AS goods_id, g.goods_sn AS goods_sn,"
+        " g.goods_name AS goods_name, g.goods_brief AS goods_brief,"
+        " g.shop_price AS shop_price, g.market_price AS market_price"
+        " FROM " + db_->table("goods") + " g WHERE " + where +
+        " ORDER BY g.goods_id DESC LIMIT " + std::to_string(limit);
+
+    std::vector<domain::GoodsSummary> items;
+    for (const Row &r : db_->query(sql, params))
+        items.push_back(rowToSummary(r));
+    return items;
+}
+
 } // namespace ecshop::infra

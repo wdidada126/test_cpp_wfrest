@@ -11,6 +11,7 @@
 #include "ecshop/http/HealthRoutes.h"
 #include "ecshop/http/MeRoutes.h"
 #include "ecshop/http/OrderRoutes.h"
+#include "ecshop/http/PublicRoutes.h"
 #include "ecshop/http/RegionRoutes.h"
 #include "ecshop/http/TagRoutes.h"
 #include "ecshop/infrastructure/db/DbFactory.h"
@@ -60,6 +61,7 @@ int main(int argc, char **argv)
     ecshop::http::registerCheckoutRoutes(sv, db);
     ecshop::http::registerOrderRoutes(sv, db);
     ecshop::http::registerCommentRoutes(sv, db);
+    ecshop::http::registerPublicRoutes(sv, db);
     ecshop::http::registerRegionRoutes(sv, db);
 
     // GET /ping -> pong

@@ -25,6 +25,10 @@ public:
     std::optional<domain::GoodsGallery> findGallery(int64_t goods_id) override;
     domain::QuotationPage listQuotation(const domain::GoodsFilter &filter, int64_t offset,
                                         int64_t limit) override;
+    std::vector<domain::GoodsSummary> listByIntroType(const std::string &intro_type,
+                                                      int64_t limit) override;
+    std::vector<domain::GoodsSummary> listPublicGoods(const domain::GoodsFilter &filter,
+                                                      int64_t limit) override;
 
 private:
     domain::GoodsPage listGoods(const std::string &where_sql,
