@@ -4,6 +4,8 @@
 #include "ecshop/infrastructure/SqlCatalogRepository.h"
 #include "ecshop/infrastructure/SqlFeedRepository.h"
 
+#include <optional>
+
 #include <algorithm>
 #include <cstdlib>
 #include <optional>
@@ -338,6 +340,78 @@ void registerPublicRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
 
         resp->add_header("Content-Type", "application/xml; charset=utf-8");
         resp->String(xml);
+    });
+
+    // GET /api/v1/ads/{id} — active enabled ad
+    sv.GET("/api/v1/ads/{id}", [feed](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        int64_t ad_id = 0;
+        if (!api::parsePathId(req, "id", ad_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        std::optional<domain::Ad> ad = feed->findActive(ad_id);
+        if (!ad)
+        {
+            api::send(req, resp, ApiError::notFound("ad not found"));
+            return;
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("ad_id", ad->ad_id);
+        out.push_back("position_id", ad->position_id);
+        out.push_back("media_type", ad->media_type);
+        out.push_back("name", ad->name);
+        out.push_back("link", ad->link);
+        out.push_back("code", ad->code);
+        out.push_back("click_count", ad->click_count);
+        api::send(req, resp, ApiResponse::ok(out));
+    });
+
+    // POST /api/v1/ads/{id}/click — {"referer":"partner.example"}
+    sv.POST("/api/v1/ads/{id}/click",
+            [feed](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        int64_t ad_id = 0;
+        if (!api::parsePathId(req, "id", ad_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        wfrest::Json body;
+        api::ApiResponse err;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string referer;
+        if (body.has("referer") && !api::readStr(body, "referer", referer))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "referer");
+            api::send(req, resp, ApiError::validationError("referer must be a string", details));
+            return;
+        }
+
+        domain::AdClickResult result = feed->recordClick(ad_id, referer);
+        if (result.status == domain::AdClickStatus::NotFound)
+        {
+            api::send(req, resp, ApiError::notFound("ad not found"));
+            return;
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("redirect_url", result.redirect_url);
+        api::send(req, resp, ApiResponse::ok(out));
     });
 }
 

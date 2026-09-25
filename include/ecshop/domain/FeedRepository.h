@@ -27,6 +27,31 @@ struct AdImage
     std::string code;
 };
 
+// full ad row for /ads/{id}
+struct Ad
+{
+    int64_t ad_id = 0;
+    int64_t position_id = 0;
+    int64_t media_type = 0;
+    std::string name;
+    std::string link;
+    std::string code;
+    int64_t click_count = 0;
+};
+
+enum class AdClickStatus
+{
+    Clicked,
+    NotFound,
+};
+
+// active or not; ads return their redirect target
+struct AdClickResult
+{
+    AdClickStatus status = AdClickStatus::NotFound;
+    std::string redirect_url;
+};
+
 // Marketing activity reads shared by /feed.xml and /api/v1/promotions.
 class FeedRepository
 {
@@ -42,6 +67,12 @@ public:
 
     // active image ads ordered by position and id (docs/03 /cycle-image.xml)
     virtual std::vector<AdImage> listImageAds() = 0;
+
+    // GET /api/v1/ads/{id} — active enabled ad
+    virtual std::optional<Ad> findActive(int64_t ad_id) = 0;
+
+    // Post /ads/{id}/click: adds click_count, upserts the adsense referer row
+    virtual AdClickResult recordClick(int64_t ad_id, const std::string &referer) = 0;
 };
 
 } // namespace ecshop::domain

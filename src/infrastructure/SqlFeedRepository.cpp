@@ -67,4 +67,68 @@ std::vector<domain::AdImage> SqlFeedRepository::listImageAds()
     return items;
 }
 
+std::optional<domain::Ad> SqlFeedRepository::findActive(int64_t ad_id)
+{
+    std::string sql =
+        "SELECT ad_id AS ad_id, position_id AS position_id, media_type AS media_type,"
+        " ad_name AS ad_name, ad_link AS ad_link, ad_code AS ad_code,"
+        " click_count AS click_count FROM " + db_->table("ad") +
+        " WHERE ad_id = ? AND enabled = 1 AND start_time <= " + db_->nowExpr() +
+        " AND end_time >= " + db_->nowExpr();
+
+    std::vector<Row> rows = db_->query(sql, {std::to_string(ad_id)});
+    if (rows.empty())
+        return std::nullopt;
+
+    domain::Ad ad;
+    ad.ad_id = rows.front().getInt("ad_id");
+    ad.position_id = rows.front().getInt("position_id");
+    ad.media_type = rows.front().getInt("media_type");
+    ad.name = rows.front().get("ad_name");
+    ad.link = rows.front().get("ad_link");
+    ad.code = rows.front().get("ad_code");
+    ad.click_count = rows.front().getInt("click_count");
+    return ad;
+}
+
+domain::AdClickResult SqlFeedRepository::recordClick(int64_t ad_id, const std::string &referer)
+{
+    domain::AdClickResult result;
+
+    db_->transaction([&] {
+        std::optional<domain::Ad> ad = findActive(ad_id);
+        if (!ad)
+            return;
+
+        db_->execute("UPDATE " + db_->table("ad") +
+                         " SET click_count = click_count + 1 WHERE ad_id = ?",
+                     {std::to_string(ad_id)});
+
+        // adsense upsert: update the referer counter, insert when new
+        int64_t changed = db_->execute(
+            "UPDATE " + db_->table("adsense") + " SET clicks = clicks + 1" +
+                " WHERE from_ad = ? AND referer = ?",
+            {std::to_string(ad_id), referer});
+        if (changed == 0)
+        {
+            try
+            {
+                db_->execute("INSERT INTO " + db_->table("adsense") +
+                                 " (from_ad, referer, clicks) VALUES (?, ?, 1)",
+                             {std::to_string(ad_id), referer});
+            }
+            catch (const DbError &)
+            {
+                db_->execute("UPDATE " + db_->table("adsense") +
+                                 " SET clicks = clicks + 1 WHERE from_ad = ? AND referer = ?",
+                             {std::to_string(ad_id), referer});
+            }
+        }
+
+        result.status = domain::AdClickStatus::Clicked;
+        result.redirect_url = ad->link;
+    });
+    return result;
+}
+
 } // namespace ecshop::infra
