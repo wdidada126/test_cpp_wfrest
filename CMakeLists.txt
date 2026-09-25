@@ -129,6 +129,7 @@ set(ECSHOP_SOURCES
     src/http/PublicRoutes.cpp
     src/http/MessageRoutes.cpp
     src/http/NewsletterRoutes.cpp
+    src/http/PaymentRoutes.cpp
     src/http/HttpUtil.cpp
     src/http/HealthRoutes.cpp
     src/http/CatalogRoutes.cpp
