@@ -86,6 +86,49 @@ void SqlAdminRepository::ensureAdmin(const std::string &username,
     db_->execute(sql, {username, password_hash, role});
 }
 
+std::vector<domain::AdminUser> SqlAdminRepository::listAdmins()
+{
+    std::string sql =
+        "SELECT admin_id AS admin_id, user_name AS user_name, role AS role FROM " +
+        db_->table("admin_user") + " ORDER BY admin_id";
+
+    std::vector<domain::AdminUser> items;
+    for (const Row &row : db_->query(sql, {}))
+    {
+        domain::AdminUser admin;
+        admin.admin_id = row.getInt("admin_id");
+        admin.username = row.get("user_name");
+        admin.role = row.get("role");
+        items.push_back(std::move(admin));
+    }
+    return items;
+}
+
+int64_t SqlAdminRepository::createAdmin(const std::string &username,
+                                        const std::string &password_hash,
+                                        const std::string &role)
+{
+    std::string sql =
+        "INSERT INTO " + db_->table("admin_user") +
+        " (user_name, password_hash, role) VALUES (?, ?, ?)";
+    db_->execute(sql, {username, password_hash, role});
+    return db_->lastInsertId();
+}
+
+bool SqlAdminRepository::deleteAdmin(int64_t admin_id)
+{
+    bool ok = false;
+    db_->transaction([&] {
+        // revoke all sessions first, then drop the row
+        db_->execute("DELETE FROM " + db_->table("admin_sessions") + " WHERE admin_id = ?",
+                     {std::to_string(admin_id)});
+        ok = db_->execute("DELETE FROM " + db_->table("admin_user") +
+                              " WHERE admin_id = ?",
+                          {std::to_string(admin_id)}) > 0;
+    });
+    return ok;
+}
+
 void SqlAdminRepository::createSession(const std::string &token_hash, int64_t admin_id)
 {
     std::string sql = "INSERT INTO " + db_->table("admin_sessions") +

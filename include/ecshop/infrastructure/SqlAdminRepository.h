@@ -18,6 +18,10 @@ public:
     std::optional<std::string> passwordHashOf(int64_t admin_id) override;
     void ensureAdmin(const std::string &username, const std::string &password_hash,
                      const std::string &role) override;
+    std::vector<domain::AdminUser> listAdmins() override;
+    int64_t createAdmin(const std::string &username, const std::string &password_hash,
+                        const std::string &role) override;
+    bool deleteAdmin(int64_t admin_id) override;
     void createSession(const std::string &token_hash, int64_t admin_id) override;
     std::optional<int64_t> adminIdOfTokenHash(const std::string &token_hash) override;
     void deleteSession(const std::string &token_hash) override;

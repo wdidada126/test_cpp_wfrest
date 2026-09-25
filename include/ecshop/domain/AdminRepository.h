@@ -39,6 +39,14 @@ public:
     virtual void ensureAdmin(const std::string &username, const std::string &password_hash,
                              const std::string &role) = 0;
 
+    // admin account management (super only)
+    virtual std::vector<AdminUser> listAdmins() = 0;
+    // returns new admin id; throws DbError on duplicate username
+    virtual int64_t createAdmin(const std::string &username, const std::string &password_hash,
+                                const std::string &role) = 0;
+    // revokes all sessions and removes the admin; false when missing
+    virtual bool deleteAdmin(int64_t admin_id) = 0;
+
     virtual void createSession(const std::string &token_hash, int64_t admin_id) = 0;
     virtual std::optional<int64_t> adminIdOfTokenHash(const std::string &token_hash) = 0;
     virtual void deleteSession(const std::string &token_hash) = 0;

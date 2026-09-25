@@ -52,6 +52,15 @@ std::optional<domain::AdminUser> adminAuth(
     return admin;
 }
 
+// role gate: only super admins may touch users, funds and promotions
+bool requireSuper(const std::optional<domain::AdminUser> &admin, ApiResponse &err)
+{
+    if (admin && admin->role == "super")
+        return true;
+    err = ApiError::forbidden("super role required for this operation");
+    return false;
+}
+
 } // namespace
 
 static wfrest::Json adminGoodsToJson(const domain::AdminGoodsRow &goods)
@@ -1520,6 +1529,11 @@ void registerAdminRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
                       ApiError::validationError("email must be a valid address", details));
             return;
         }
+        if (!requireSuper(admin, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
         if (!extra->updateUserEmail(user_id, email))
         {
             api::send(req, resp, ApiError::notFound("user not found"));
@@ -1594,6 +1608,11 @@ void registerAdminRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
         api::readStr(body, "description", description);
         api::readStr(body, "ext_info", ext_info);
 
+        if (!requireSuper(admin, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
         int64_t act_id = 0;
         try
         {
@@ -1649,6 +1668,11 @@ void registerAdminRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
             }
             act_type = v;
         }
+        if (!requireSuper(admin, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
         if (!extra->deletePromotion(act_id, act_type))
         {
             api::send(req, resp, ApiError::notFound("promotion not found"));
@@ -1689,6 +1713,11 @@ void registerAdminRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
         }
 
         bool ok = false;
+        if (!requireSuper(admin, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
         if (request->process_type == "deposit")
             ok = extra->settleDeposit(rec_id, 0);
         else if (request->process_type == "withdrawal")
@@ -1768,6 +1797,194 @@ void registerAdminRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
         out.push_back("goods", extra->countGoodsAll());
         out.push_back("paid_orders", extra->countRevenues());
         api::send(req, resp, api::ApiResponse::ok(out));
+    });
+
+    // ---- admin account management (super only) ----
+
+    // GET /api/v1/admin/admins
+    sv.GET("/api/v1/admin/admins",
+           [admins](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        if (!requireSuper(admin, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        wfrest::Json::Array items;
+        api::PageQuery page;
+        for (const domain::AdminUser &one : admins->listAdmins())
+        {
+            wfrest::Json::Object obj;
+            obj.push_back("admin_id", one.admin_id);
+            obj.push_back("username", one.username);
+            obj.push_back("role", one.role);
+            items.push_back(obj);
+        }
+        api::send(req, resp,
+                  api::ApiResponse::ok(api::listBody(
+                      page, static_cast<int64_t>(items.size()), items)));
+    });
+
+    // POST /api/v1/admin/admins — {"username","password","role":"manager"}
+    sv.POST("/api/v1/admin/admins",
+            [admins, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        if (!requireSuper(admin, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string username, password, role = "manager";
+        if (!api::readStr(body, "username", username) || username.empty() ||
+            username.size() > 60)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "username");
+            api::send(req, resp,
+                      ApiError::validationError("username must be 1-60 bytes", details));
+            return;
+        }
+        if (!api::readStr(body, "password", password) || password.size() < 8 ||
+            password.size() > 1024)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "password");
+            api::send(req, resp,
+                      ApiError::validationError("password must be 8-1024 bytes", details));
+            return;
+        }
+        std::string role_input;
+        if (body.has("role"))
+        {
+            if (!api::readStr(body, "role", role_input) ||
+                (role_input != "super" && role_input != "manager"))
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "role");
+                api::send(req, resp,
+                          ApiError::validationError("role must be super or manager", details));
+                return;
+            }
+            role = role_input;
+        }
+
+        if (admins->findByUsername(username))
+        {
+            api::send(req, resp,
+                      ApiError::conflict("username_taken", "admin username is taken"));
+            return;
+        }
+
+        int64_t created_id = 0;
+        try
+        {
+            created_id = admins->createAdmin(username, shared::hashPassword(password), role);
+        }
+        catch (const infra::DbError &)
+        {
+            api::send(req, resp,
+                      ApiError::conflict("username_taken", "admin username is taken"));
+            return;
+        }
+
+        admins->writeLog(admin->admin_id, "create_admin",
+                         "admin_id=" + std::to_string(created_id) + " role=" + role,
+                         task_of(resp)->peer_addr());
+
+        wfrest::Json::Object out;
+        out.push_back("admin_id", created_id);
+        out.push_back("username", username);
+        out.push_back("role", role);
+        api::send(req, resp, api::ApiResponse::created(out));
+    });
+
+    // DELETE /api/v1/admin/admins/{id} — cannot delete self or the last super
+    sv.DELETE("/api/v1/admin/admins/{id}",
+              [admins, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        if (!requireSuper(admin, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        int64_t target_id = 0;
+        if (!api::parsePathId(req, "id", target_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp,
+                      ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+        if (target_id == admin->admin_id)
+        {
+            api::send(req, resp,
+                      ApiError::conflict("admin_self_delete", "you cannot delete yourself"));
+            return;
+        }
+
+        std::optional<domain::AdminUser> target = admins->findById(target_id);
+        if (!target)
+        {
+            api::send(req, resp, ApiError::notFound("admin not found"));
+            return;
+        }
+        if (target->role == "super")
+        {
+            int64_t supers = 0;
+            for (const domain::AdminUser &one : admins->listAdmins())
+            {
+                if (one.role == "super")
+                    ++supers;
+            }
+            if (supers <= 1)
+            {
+                api::send(req, resp,
+                          ApiError::conflict("last_super_admin", "cannot delete the last super admin"));
+                return;
+            }
+        }
+
+        if (!admins->deleteAdmin(target_id))
+        {
+            api::send(req, resp, ApiError::notFound("admin not found"));
+            return;
+        }
+
+        admins->writeLog(admin->admin_id, "delete_admin",
+                         "admin_id=" + std::to_string(target_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, api::ApiResponse::noContent());
     });
 }
 
