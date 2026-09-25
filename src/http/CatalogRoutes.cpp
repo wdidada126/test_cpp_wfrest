@@ -6,7 +6,10 @@
 #include <algorithm>
 #include <cstdlib>
 #include <optional>
+#include <string>
 #include <vector>
+
+#include "ecshop/shared/Money.h"
 
 namespace ecshop::http {
 
@@ -211,6 +214,158 @@ void registerCatalogRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
             items.push_back(goodsSummaryToJson(item));
 
         api::send(req, resp, ApiResponse::ok(api::listBody(page, result.total, items)));
+    });
+
+    // POST /api/v1/goods/{id}/price-quote — display-only quote (docs/03)
+    sv.POST("/api/v1/goods/{id}/price-quote",
+            [repo](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        int64_t goods_id = 0;
+        if (!api::parsePathId(req, "id", goods_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        wfrest::Json body;
+        api::ApiResponse err;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t quantity = 0;
+        if (!api::readInt(body, "quantity", quantity))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "quantity");
+            api::send(req, resp, ApiError::validationError("quantity is required", details));
+            return;
+        }
+        if (quantity < 1 || quantity > 999)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "quantity");
+            api::send(req, resp,
+                      ApiError::validationError("quantity must be between 1 and 999", details));
+            return;
+        }
+
+        int64_t product_id = 0;
+        if (body.has("product_id") && !api::readInt(body, "product_id", product_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "product_id");
+            api::send(req, resp,
+                      ApiError::validationError("product_id must be a positive integer", details));
+            return;
+        }
+
+        std::vector<int64_t> attribute_ids;
+        if (body.has("attribute_ids"))
+        {
+            wfrest::Json arr = body["attribute_ids"];
+            if (!arr.is_array())
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "attribute_ids");
+                api::send(req, resp,
+                          ApiError::validationError("attribute_ids must be an array", details));
+                return;
+            }
+            for (size_t i = 0; i < arr.size(); ++i)
+            {
+                wfrest::Json v = arr[static_cast<int>(i)];
+                if (!v.is_number())
+                {
+                    wfrest::Json::Object details;
+                    details.push_back("field", "attribute_ids");
+                    api::send(req, resp,
+                              ApiError::validationError("attribute_ids must be integers", details));
+                    return;
+                }
+                int64_t attr_id = static_cast<int64_t>(v.get<double>());
+                if (attr_id <= 0)
+                {
+                    wfrest::Json::Object details;
+                    details.push_back("field", "attribute_ids");
+                    api::send(req, resp,
+                              ApiError::validationError("attribute_ids must be positive integers",
+                                                        details));
+                    return;
+                }
+                attribute_ids.push_back(attr_id);
+            }
+        }
+
+        std::optional<domain::Goods> goods = repo->findVisibleGoods(goods_id);
+        if (!goods)
+        {
+            api::send(req, resp, ApiError::notFound("goods not found"));
+            return;
+        }
+
+        if (product_id > 0)
+        {
+            bool found = false;
+            for (const domain::GoodsProduct &p : goods->products)
+            {
+                if (p.product_id == product_id)
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "product_id");
+                api::send(req, resp,
+                          ApiError::validationError("product_id does not belong to this goods",
+                                                    details));
+                return;
+            }
+        }
+
+        for (int64_t attr_id : attribute_ids)
+        {
+            bool found = false;
+            for (const domain::GoodsSpec &spec : goods->specs)
+            {
+                if (spec.goods_attr_id == attr_id)
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                wfrest::Json::Object details;
+                details.push_back("field", "attribute_ids");
+                api::send(req, resp,
+                          ApiError::validationError("attribute_ids contains unknown attribute",
+                                                    details));
+                return;
+            }
+        }
+
+        // Display-only quote: unit price is the goods shop price; the order
+        // pipeline recomputes prices, attribute add-ons included.
+        int64_t unit_cents = 0;
+        shared::Money::parse(goods->price, unit_cents);
+        int64_t total_cents = unit_cents * quantity;
+
+        wfrest::Json::Object out;
+        out.push_back("goods_id", goods->goods_id);
+        out.push_back("quantity", quantity);
+        out.push_back("unit_price", shared::Money::format(unit_cents));
+        out.push_back("total", shared::Money::format(total_cents));
+        out.push_back("currency", "CNY");
+        out.push_back("stock_available", goods->stock_available);
+        api::send(req, resp, ApiResponse::ok(out));
     });
 }
 
