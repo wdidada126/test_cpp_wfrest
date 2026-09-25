@@ -128,6 +128,7 @@ set(ECSHOP_SOURCES
     src/http/CommentRoutes.cpp
     src/http/PublicRoutes.cpp
     src/http/MessageRoutes.cpp
+    src/http/NewsletterRoutes.cpp
     src/http/HttpUtil.cpp
     src/http/HealthRoutes.cpp
     src/http/CatalogRoutes.cpp
@@ -150,6 +151,7 @@ set(ECSHOP_SOURCES
     src/infrastructure/SqlCommentRepository.cpp
     src/infrastructure/SqlFeedRepository.cpp
     src/infrastructure/SqlMessageRepository.cpp
+    src/infrastructure/SqlNewsletterRepository.cpp
 )
 
 add_executable(wfrest_server ${ECSHOP_SOURCES})
