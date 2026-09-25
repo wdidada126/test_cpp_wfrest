@@ -168,6 +168,12 @@ void registerTagRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         tags->removeTag(*user_id, word);
         api::send(req, resp, ApiResponse::noContent());
     });
+
+    // GET /api/v1/tags — public tag cloud
+    sv.GET("/api/v1/tags", [tags](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::send(req, resp, ApiResponse::ok(tagStatsToJson(tags->listPublic())));
+    });
 }
 
 } // namespace ecshop::http

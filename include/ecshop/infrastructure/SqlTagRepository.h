@@ -15,6 +15,7 @@ public:
     bool addTags(int64_t user_id, int64_t goods_id, const std::vector<std::string> &words,
                  std::vector<domain::TagCount> &stats) override;
     std::vector<domain::TagCount> listOfUser(int64_t user_id) override;
+    std::vector<domain::TagCount> listPublic() override;
     void removeTag(int64_t user_id, const std::string &word) override;
 
 private:

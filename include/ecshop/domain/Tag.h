@@ -27,6 +27,9 @@ public:
     // tag words of a user, aggregated with usage counts
     virtual std::vector<TagCount> listOfUser(int64_t user_id) = 0;
 
+    // public tag cloud: only tags of on-sale, non-deleted goods
+    virtual std::vector<TagCount> listPublic() = 0;
+
     // deletes only the current user's rows; idempotent
     virtual void removeTag(int64_t user_id, const std::string &word) = 0;
 };

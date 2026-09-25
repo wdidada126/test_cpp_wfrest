@@ -80,6 +80,25 @@ std::vector<TagCount> SqlTagRepository::listOfUser(int64_t user_id)
     return items;
 }
 
+std::vector<TagCount> SqlTagRepository::listPublic()
+{
+    std::string sql =
+        "SELECT t.tag_words AS word, COUNT(*) AS count FROM " + db_->table("tag") +
+        " t JOIN " + db_->table("goods") + " g ON g.goods_id = t.goods_id"
+        " WHERE g.is_on_sale = 1 AND g.is_delete = 0"
+        " GROUP BY t.tag_words ORDER BY count DESC, t.tag_words ASC";
+
+    std::vector<TagCount> items;
+    for (const Row &row : db_->query(sql, {}))
+    {
+        TagCount item;
+        item.word = row.get("word");
+        item.count = row.getInt("count");
+        items.push_back(std::move(item));
+    }
+    return items;
+}
+
 void SqlTagRepository::removeTag(int64_t user_id, const std::string &word)
 {
     std::string sql = "DELETE FROM " + db_->table("tag") +
