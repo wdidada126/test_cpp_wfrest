@@ -1,6 +1,7 @@
 #include "ecshop/http/MeRoutes.h"
 #include "ecshop/http/AuthUtil.h"
 #include "ecshop/http/HttpUtil.h"
+#include "ecshop/infrastructure/SqlBonusRepository.h"
 #include "ecshop/infrastructure/SqlUserRepository.h"
 #include "ecshop/shared/Password.h"
 #include "ecshop/shared/TimeUtil.h"
@@ -28,6 +29,7 @@ static wfrest::Json userToJson(const domain::User &user)
 void registerMeRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 {
     auto users = std::make_shared<infra::SqlUserRepository>(db);
+    auto bonuses = std::make_shared<infra::SqlBonusRepository>(db);
 
     // GET /api/v1/me — current user profile
     sv.GET("/api/v1/me", [users](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
@@ -163,6 +165,78 @@ void registerMeRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
         {
             api::send(req, resp,
                       ApiError::conflict("password_conflict", "password changed concurrently"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::noContent());
+    });
+
+    // POST /api/v1/me/bonuses/claim — claim a bonus by serial number
+    sv.POST("/api/v1/me/bonuses/claim",
+            [users, bonuses, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        std::string bonus_sn;
+        if (!api::readStr(body, "bonus_sn", bonus_sn) || bonus_sn.empty() ||
+            bonus_sn.size() > 20 ||
+            bonus_sn.find_first_not_of("0123456789") != std::string::npos)
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "bonus_sn");
+            api::send(req, resp,
+                      ApiError::validationError("bonus_sn must be 1-20 digits", details));
+            return;
+        }
+
+        std::optional<domain::BonusRecord> bonus = bonuses->findBySn(bonus_sn);
+        if (!bonus)
+        {
+            api::send(req, resp, ApiError::notFound("bonus not found"));
+            return;
+        }
+        if (bonus->user_id != 0)
+        {
+            api::send(req, resp, ApiError::conflict("bonus_claimed", "bonus already claimed"));
+            return;
+        }
+
+        int64_t now = shared::nowUnix();
+        if ((bonus->use_start_date > 0 && now < bonus->use_start_date) ||
+            (bonus->use_end_date > 0 && now > bonus->use_end_date))
+        {
+            api::send(req, resp, ApiError::conflict("bonus_expired", "bonus is not usable now"));
+            return;
+        }
+
+        bool claimed = false;
+        try
+        {
+            db->transaction([&] {
+                claimed = bonuses->claim(bonus->bonus_id, *user_id);
+            });
+        }
+        catch (const infra::DbError &)
+        {
+            claimed = false;
+        }
+
+        if (!claimed)
+        {
+            api::send(req, resp, ApiError::conflict("bonus_claimed", "bonus already claimed"));
             return;
         }
 
