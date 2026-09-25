@@ -1,6 +1,7 @@
 #include "ecshop/http/PaymentRoutes.h"
 #include "ecshop/http/HttpUtil.h"
 #include "ecshop/infrastructure/SqlPaymentRepository.h"
+#include "ecshop/shared/Money.h"
 #include "ecshop/shared/Password.h"
 
 #include <cstdlib>
