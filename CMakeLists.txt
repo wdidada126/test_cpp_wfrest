@@ -131,6 +131,7 @@ set(ECSHOP_SOURCES
     src/http/NewsletterRoutes.cpp
     src/http/PaymentRoutes.cpp
     src/http/PromotionRoutes.cpp
+    src/http/PackageRoutes.cpp
     src/http/HttpUtil.cpp
     src/http/HealthRoutes.cpp
     src/http/CatalogRoutes.cpp
@@ -156,6 +157,7 @@ set(ECSHOP_SOURCES
     src/infrastructure/SqlNewsletterRepository.cpp
     src/infrastructure/SqlPaymentRepository.cpp
     src/infrastructure/SqlPromotionRepository.cpp
+    src/infrastructure/SqlPackageRepository.cpp
 )
 
 add_executable(wfrest_server ${ECSHOP_SOURCES})
