@@ -101,6 +101,55 @@ void registerFavoriteRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> d
         out.push_back("attention", false);
         api::send(req, resp, ApiResponse::created(out));
     });
+
+    // PATCH /api/v1/me/favorites/{id} — attention flag
+    sv.PATCH("/api/v1/me/favorites/{id}",
+             [users, favorites](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t rec_id = 0;
+        if (!api::parsePathId(req, "id", rec_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        bool attention = false;
+        if (!api::readBool(body, "attention", attention))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "attention");
+            api::send(req, resp, ApiError::validationError("attention must be a boolean", details));
+            return;
+        }
+
+        if (!favorites->setAttention(*user_id, rec_id, attention))
+        {
+            api::send(req, resp, ApiError::notFound("favorite not found"));
+            return;
+        }
+
+        wfrest::Json::Object out;
+        out.push_back("id", rec_id);
+        out.push_back("attention", attention);
+        api::send(req, resp, ApiResponse::ok(out));
+    });
 }
 
 } // namespace ecshop::http
