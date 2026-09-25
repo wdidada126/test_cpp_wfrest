@@ -1,4 +1,5 @@
 #include "ecshop/app/AppConfig.h"
+#include "ecshop/http/AdminRoutes.h"
 #include "ecshop/http/AddressRoutes.h"
 #include "ecshop/http/ArticleRoutes.h"
 #include "ecshop/http/AuthRoutes.h"
@@ -63,6 +64,7 @@ int main(int argc, char **argv)
     ecshop::http::registerFavoriteRoutes(sv, db);
     ecshop::http::registerCartRoutes(sv, db);
     ecshop::http::registerTagRoutes(sv, db);
+    ecshop::http::registerAdminRoutes(sv, db, cfg);
     ecshop::http::registerBookingRoutes(sv, db);
     ecshop::http::registerCheckoutRoutes(sv, db);
     ecshop::http::registerOrderRoutes(sv, db);
