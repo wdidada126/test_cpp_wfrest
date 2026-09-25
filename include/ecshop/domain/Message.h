@@ -18,6 +18,7 @@ struct Message
     int64_t type = 0;
     int64_t order_id = 0;
     std::string created_at; // unix seconds as text
+    bool published = true; // msg_status (admin moderation view uses this)
 
     // /me/messages carries the first admin/customer-service reply (if any)
     bool has_reply = false;

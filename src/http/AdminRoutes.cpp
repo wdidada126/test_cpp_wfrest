@@ -2,6 +2,7 @@
 #include "ecshop/http/HttpUtil.h"
 #include "ecshop/infrastructure/SqlAdminCategoryRepository.h"
 #include "ecshop/infrastructure/SqlAdminGoodsRepository.h"
+#include "ecshop/infrastructure/SqlAdminModerationRepository.h"
 #include "ecshop/infrastructure/SqlAdminOrderRepository.h"
 #include "ecshop/infrastructure/SqlAdminPaymentRepository.h"
 #include "ecshop/infrastructure/SqlAdminRepository.h"
@@ -1218,6 +1219,234 @@ void registerAdminRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db,
                          "shipping_id=" + std::to_string(shipping_id),
                          task_of(resp)->peer_addr());
         api::send(req, resp, ApiResponse::ok(shippingToJson(*item)));
+    });
+
+    auto moderation = std::make_shared<infra::SqlAdminModerationRepository>(db);
+
+    auto adminCommentToJson = [](const domain::Comment &comment) {
+        wfrest::Json::Object obj;
+        obj.push_back("comment_id", comment.comment_id);
+        obj.push_back("goods_id", comment.goods_id);
+        obj.push_back("user_name", comment.user_name);
+        obj.push_back("content", comment.content);
+        obj.push_back("add_time",
+                      shared::isoUtc(std::strtoll(comment.add_time.c_str(), nullptr, 10)));
+        return obj;
+    };
+
+    // GET /api/v1/admin/comments — all comments incl. unpublished
+    sv.GET("/api/v1/admin/comments",
+           [admins, moderation, adminCommentToJson](const wfrest::HttpReq *req,
+                                                     wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        api::PageQuery page;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        std::vector<domain::Comment> all =
+            moderation->listComments(page.offset(), page.page_size);
+        wfrest::Json::Array items;
+        for (const domain::Comment &comment : all)
+            items.push_back(adminCommentToJson(comment));
+        api::send(req, resp,
+                  ApiResponse::ok(api::listBody(page, moderation->countComments(), items)));
+    });
+
+    // PATCH /api/v1/admin/comments/{id}/status — {"published":true|false}
+    sv.PATCH("/api/v1/admin/comments/{id}/status",
+             [admins, moderation, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        int64_t comment_id = 0;
+        if (!api::parsePathId(req, "id", comment_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        bool published = false;
+        if (!api::readBool(body, "published", published))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "published");
+            api::send(req, resp, ApiError::validationError("published must be a boolean", details));
+            return;
+        }
+        if (!moderation->setCommentStatus(comment_id, published))
+        {
+            api::send(req, resp, ApiError::notFound("comment not found"));
+            return;
+        }
+        admins->writeLog(admin->admin_id, "comment_status",
+                         "comment_id=" + std::to_string(comment_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, ApiResponse::noContent());
+    });
+
+    // DELETE /api/v1/admin/comments/{id}
+    sv.DELETE("/api/v1/admin/comments/{id}",
+              [admins, moderation, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        int64_t comment_id = 0;
+        if (!api::parsePathId(req, "id", comment_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+        if (!moderation->removeComment(comment_id))
+        {
+            api::send(req, resp, ApiError::notFound("comment not found"));
+            return;
+        }
+        admins->writeLog(admin->admin_id, "delete_comment",
+                         "comment_id=" + std::to_string(comment_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, ApiResponse::noContent());
+    });
+
+    auto adminMessageToJson = [](const domain::Message &message) {
+        wfrest::Json::Object obj;
+        obj.push_back("msg_id", message.msg_id);
+        obj.push_back("username", message.username);
+        obj.push_back("email", message.email);
+        obj.push_back("title", message.title);
+        obj.push_back("content", message.content);
+        obj.push_back("order_id", message.order_id);
+        obj.push_back("published", message.published);
+        obj.push_back("created_at",
+                      shared::isoUtc(std::strtoll(message.created_at.c_str(), nullptr, 10)));
+        return obj;
+    };
+
+    // GET /api/v1/admin/messages — all board messages incl. unpublished
+    sv.GET("/api/v1/admin/messages",
+           [admins, moderation, adminMessageToJson](const wfrest::HttpReq *req,
+                                                     wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        api::PageQuery page;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        std::vector<domain::Message> all = moderation->listMessages(page.offset(), page.page_size);
+        wfrest::Json::Array items;
+        for (const domain::Message &message : all)
+            items.push_back(adminMessageToJson(message));
+        api::send(req, resp,
+                  ApiResponse::ok(api::listBody(page, moderation->countMessages(), items)));
+    });
+
+    // PATCH /api/v1/admin/messages/{id}/status — {"published":true|false}
+    sv.PATCH("/api/v1/admin/messages/{id}/status",
+             [admins, moderation, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        int64_t msg_id = 0;
+        if (!api::parsePathId(req, "id", msg_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+        wfrest::Json body;
+        if (!api::parseJsonBody(req, body, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        bool published = false;
+        if (!api::readBool(body, "published", published))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "published");
+            api::send(req, resp, ApiError::validationError("published must be a boolean", details));
+            return;
+        }
+        if (!moderation->setMessageStatus(msg_id, published))
+        {
+            api::send(req, resp, ApiError::notFound("message not found"));
+            return;
+        }
+        admins->writeLog(admin->admin_id, "message_status",
+                         "msg_id=" + std::to_string(msg_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, ApiResponse::noContent());
+    });
+
+    // DELETE /api/v1/admin/messages/{id} — removes replies too
+    sv.DELETE("/api/v1/admin/messages/{id}",
+              [admins, moderation, db](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<domain::AdminUser> admin = adminAuth(req, admins, err);
+        if (!admin)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+        int64_t msg_id = 0;
+        if (!api::parsePathId(req, "id", msg_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+        if (!moderation->removeMessage(msg_id))
+        {
+            api::send(req, resp, ApiError::notFound("message not found"));
+            return;
+        }
+        admins->writeLog(admin->admin_id, "delete_message",
+                         "msg_id=" + std::to_string(msg_id),
+                         task_of(resp)->peer_addr());
+        api::send(req, resp, ApiResponse::noContent());
     });
 }
 

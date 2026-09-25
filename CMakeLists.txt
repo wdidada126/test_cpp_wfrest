@@ -170,6 +170,7 @@ set(ECSHOP_SOURCES
     src/infrastructure/SqlAdminOrderRepository.cpp
     src/infrastructure/SqlAdminCategoryRepository.cpp
     src/infrastructure/SqlAdminPaymentRepository.cpp
+    src/infrastructure/SqlAdminModerationRepository.cpp
 )
 
 add_executable(wfrest_server ${ECSHOP_SOURCES})
