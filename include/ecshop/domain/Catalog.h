@@ -73,6 +73,14 @@ struct GoodsPage
     std::vector<GoodsSummary> items;
 };
 
+struct CategorySummary
+{
+    int64_t cat_id = 0;
+    int64_t parent_id = 0;
+    std::string name;
+    int64_t goods_count = 0;
+};
+
 // GET /api/v1/goods filters. 0 means "no filter".
 struct GoodsFilter
 {

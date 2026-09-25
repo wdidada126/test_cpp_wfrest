@@ -17,6 +17,8 @@ public:
     domain::GoodsPage listCategoryGoods(int64_t cat_id, int64_t offset, int64_t limit) override;
     domain::GoodsPage searchGoods(const domain::GoodsFilter &filter, int64_t offset,
                                   int64_t limit) override;
+    std::vector<domain::GoodsSummary> listNewestGoods(int64_t limit) override;
+    std::vector<domain::CategorySummary> listVisibleCategories() override;
 
 private:
     domain::GoodsPage listGoods(const std::string &where_sql,

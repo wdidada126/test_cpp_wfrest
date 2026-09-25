@@ -25,6 +25,12 @@ public:
 
     // on-sale, not deleted goods matching the search filters
     virtual GoodsPage searchGoods(const GoodsFilter &filter, int64_t offset, int64_t limit) = 0;
+
+    // newest on-sale goods for the home page
+    virtual std::vector<GoodsSummary> listNewestGoods(int64_t limit) = 0;
+
+    // visible categories with goods_count (on-sale, not deleted, alone-sale)
+    virtual std::vector<CategorySummary> listVisibleCategories() = 0;
 };
 
 } // namespace ecshop::domain

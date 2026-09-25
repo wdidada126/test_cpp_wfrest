@@ -249,4 +249,55 @@ domain::GoodsPage SqlCatalogRepository::searchGoods(const domain::GoodsFilter &f
     return page;
 }
 
+std::vector<domain::GoodsSummary> SqlCatalogRepository::listNewestGoods(int64_t limit)
+{
+    // limit is a validated integer formatted by us.
+    std::string sql =
+        "SELECT g.goods_id AS goods_id, g.goods_sn AS goods_sn,"
+        " g.goods_name AS goods_name, g.goods_brief AS goods_brief,"
+        " g.shop_price AS shop_price, g.market_price AS market_price"
+        " FROM " + db_->table("goods") +
+        " g WHERE g.is_on_sale = 1 AND g.is_delete = 0"
+        " ORDER BY g.add_time DESC, g.goods_id DESC LIMIT " + std::to_string(limit);
+
+    std::vector<domain::GoodsSummary> items;
+    for (const Row &r : db_->query(sql, {}))
+    {
+        domain::GoodsSummary item;
+        item.goods_id = r.getInt("goods_id");
+        item.goods_sn = r.get("goods_sn");
+        item.name = r.get("goods_name");
+        item.brief = r.get("goods_brief");
+        item.price = shared::Money::normalize(r.get("shop_price"));
+        item.market_price = shared::Money::normalize(r.get("market_price"));
+        items.push_back(std::move(item));
+    }
+    return items;
+}
+
+std::vector<domain::CategorySummary> SqlCatalogRepository::listVisibleCategories()
+{
+    const std::string category_t = db_->table("category");
+    const std::string goods_t = db_->table("goods");
+
+    std::string sql =
+        "SELECT c.cat_id AS cat_id, c.parent_id AS parent_id, c.cat_name AS cat_name,"
+        " (SELECT COUNT(*) FROM " + goods_t + " g WHERE g.cat_id = c.cat_id"
+        " AND g.is_on_sale = 1 AND g.is_delete = 0 AND g.is_alone_sale = 1) AS goods_count"
+        " FROM " + category_t + " c WHERE c.is_show = 1"
+        " ORDER BY c.parent_id, c.sort_order, c.cat_id";
+
+    std::vector<domain::CategorySummary> items;
+    for (const Row &r : db_->query(sql, {}))
+    {
+        domain::CategorySummary item;
+        item.cat_id = r.getInt("cat_id");
+        item.parent_id = r.getInt("parent_id");
+        item.name = r.get("cat_name");
+        item.goods_count = r.getInt("goods_count");
+        items.push_back(std::move(item));
+    }
+    return items;
+}
+
 } // namespace ecshop::infra

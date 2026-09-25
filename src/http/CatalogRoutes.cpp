@@ -1,5 +1,6 @@
 #include "ecshop/http/CatalogRoutes.h"
 #include "ecshop/http/HttpUtil.h"
+#include "ecshop/infrastructure/SqlArticleRepository.h"
 #include "ecshop/infrastructure/SqlCatalogRepository.h"
 #include "ecshop/shared/TimeUtil.h"
 
@@ -95,9 +96,30 @@ static wfrest::Json goodsSummaryToJson(const domain::GoodsSummary &item)
     return obj;
 }
 
+static wfrest::Json categoryToJson(const domain::CategorySummary &item)
+{
+    wfrest::Json::Object obj;
+    obj.push_back("cat_id", item.cat_id);
+    obj.push_back("parent_id", item.parent_id);
+    obj.push_back("name", item.name);
+    obj.push_back("goods_count", item.goods_count);
+    return obj;
+}
+
+static wfrest::Json articleSummaryToJson(const domain::ArticleSummary &item)
+{
+    wfrest::Json::Object obj;
+    obj.push_back("article_id", item.article_id);
+    obj.push_back("title", item.title);
+    obj.push_back("author", item.author);
+    obj.push_back("description", item.description);
+    return obj;
+}
+
 void registerCatalogRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 {
     auto repo = std::make_shared<infra::SqlCatalogRepository>(db);
+    auto articles = std::make_shared<infra::SqlArticleRepository>(db);
 
     // GET /api/v1/goods/{id} — goods detail (docs/08_first_url_tutorial.md)
     sv.GET("/api/v1/goods/{id}", [repo](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
@@ -365,6 +387,29 @@ void registerCatalogRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
         out.push_back("total", shared::Money::format(total_cents));
         out.push_back("currency", "CNY");
         out.push_back("stock_available", goods->stock_available);
+        api::send(req, resp, ApiResponse::ok(out));
+    });
+
+    // GET /api/v1/home — home page aggregates (goods, categories, articles)
+    sv.GET("/api/v1/home", [repo, articles](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        wfrest::Json::Object out;
+
+        wfrest::Json::Array goods_arr;
+        for (const domain::GoodsSummary &item : repo->listNewestGoods(10))
+            goods_arr.push_back(goodsSummaryToJson(item));
+        out.push_back("goods", goods_arr);
+
+        wfrest::Json::Array cat_arr;
+        for (const domain::CategorySummary &item : repo->listVisibleCategories())
+            cat_arr.push_back(categoryToJson(item));
+        out.push_back("categories", cat_arr);
+
+        wfrest::Json::Array article_arr;
+        for (const domain::ArticleSummary &item : articles->listLatestOpen(5))
+            article_arr.push_back(articleSummaryToJson(item));
+        out.push_back("articles", article_arr);
+
         api::send(req, resp, ApiResponse::ok(out));
     });
 }
