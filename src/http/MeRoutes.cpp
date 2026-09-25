@@ -528,6 +528,49 @@ void registerMeRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db)
 
         api::send(req, resp, ApiResponse::noContent());
     });
+
+    // GET /api/v1/me/account/transactions — balance ledger + balances
+    sv.GET("/api/v1/me/account/transactions",
+           [users, account](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        api::PageQuery page;
+        if (!api::parsePage(req, page, err))
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        domain::AccountTransactionPage result =
+            account->listTransactions(*user_id, page.offset(), page.page_size);
+
+        wfrest::Json::Array items;
+        for (const domain::AccountTransaction &tx : result.items)
+        {
+            wfrest::Json::Object item;
+            item.push_back("log_id", tx.log_id);
+            item.push_back("available_delta", tx.available_delta);
+            item.push_back("frozen_delta", tx.frozen_delta);
+            item.push_back("reason", tx.reason);
+            item.push_back("reference_type", tx.reference_type);
+            item.push_back("reference_id", tx.reference_id);
+            item.push_back("created_at",
+                           shared::isoUtc(std::strtoll(tx.created_at.c_str(), nullptr, 10)));
+            items.push_back(item);
+        }
+
+        wfrest::Json out = api::listBody(page, result.total, items);
+        out.push_back("available_balance", result.balance.available);
+        out.push_back("frozen_balance", result.balance.frozen);
+        api::send(req, resp, ApiResponse::ok(out));
+    });
 }
 
 } // namespace ecshop::http

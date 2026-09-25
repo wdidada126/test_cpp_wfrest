@@ -35,6 +35,9 @@ public:
     // cancel an unprocessed own request; false when missing or not cancellable.
     // A cancelled withdrawal returns the frozen amount to the balance.
     virtual bool cancelRequest(int64_t user_id, int64_t request_id) = 0;
+
+    virtual AccountTransactionPage listTransactions(int64_t user_id, int64_t offset,
+                                                     int64_t limit) = 0;
 };
 
 } // namespace ecshop::domain

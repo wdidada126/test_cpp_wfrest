@@ -184,4 +184,51 @@ bool SqlAccountRepository::cancelRequest(int64_t user_id, int64_t request_id)
     return ok;
 }
 
+// ledger deltas are always signed: "+5.00" / "-5.00"
+static std::string signedMoney(int64_t cents)
+{
+    std::string text = shared::Money::format(cents);
+    if (cents >= 0)
+        return "+" + text;
+    return text;
+}
+
+domain::AccountTransactionPage SqlAccountRepository::listTransactions(int64_t user_id,
+                                                                      int64_t offset,
+                                                                      int64_t limit)
+{
+    domain::AccountTransactionPage page;
+    page.balance = balanceOf(user_id);
+
+    const std::string log_t = db_->table("account_log");
+    std::vector<Row> counts = db_->query(
+        "SELECT COUNT(*) AS total FROM " + log_t + " WHERE user_id = ?",
+        {std::to_string(user_id)});
+    if (!counts.empty())
+        page.total = counts.front().getInt("total");
+
+    // limit/offset are validated integers formatted by us; user data stays bound.
+    std::string sql =
+        "SELECT log_id AS log_id, available_delta_cents AS available_delta_cents,"
+        " frozen_delta_cents AS frozen_delta_cents, reason AS reason,"
+        " reference_type AS reference_type, reference_id AS reference_id," +
+        db_->toUnix("created_at") + " AS created_at FROM " + log_t +
+        " WHERE user_id = ? ORDER BY log_id DESC LIMIT " + std::to_string(limit) +
+        " OFFSET " + std::to_string(offset);
+
+    for (const Row &row : db_->query(sql, {std::to_string(user_id)}))
+    {
+        domain::AccountTransaction item;
+        item.log_id = row.getInt("log_id");
+        item.available_delta = signedMoney(row.getInt("available_delta_cents"));
+        item.frozen_delta = signedMoney(row.getInt("frozen_delta_cents"));
+        item.reason = row.get("reason");
+        item.reference_type = row.get("reference_type");
+        item.reference_id = row.getInt("reference_id");
+        item.created_at = row.get("created_at");
+        page.items.push_back(std::move(item));
+    }
+    return page;
+}
+
 } // namespace ecshop::infra
