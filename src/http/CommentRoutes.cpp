@@ -167,6 +167,36 @@ void registerCommentRoutes(wfrest::HttpServer &sv, std::shared_ptr<infra::Db> db
         api::send(req, resp,
                   ApiResponse::ok(api::listBody(page, comments->countOfUser(*user_id), items)));
     });
+
+    // DELETE /api/v1/me/comments/{id} — owner-scoped delete
+    sv.DELETE("/api/v1/me/comments/{id}",
+              [users, comments](const wfrest::HttpReq *req, wfrest::HttpResp *resp)
+    {
+        api::ApiResponse err;
+        std::optional<int64_t> user_id = api::authenticate(req, users, err);
+        if (!user_id)
+        {
+            api::send(req, resp, err);
+            return;
+        }
+
+        int64_t comment_id = 0;
+        if (!api::parsePathId(req, "id", comment_id))
+        {
+            wfrest::Json::Object details;
+            details.push_back("field", "id");
+            api::send(req, resp, ApiError::validationError("id must be a positive integer", details));
+            return;
+        }
+
+        if (!comments->remove(*user_id, comment_id))
+        {
+            api::send(req, resp, ApiError::notFound("comment not found"));
+            return;
+        }
+
+        api::send(req, resp, ApiResponse::noContent());
+    });
 }
 
 } // namespace ecshop::http
