@@ -118,8 +118,10 @@ set(ECSHOP_SOURCES
     src/http/HealthRoutes.cpp
     src/http/CatalogRoutes.cpp
     src/http/ArticleRoutes.cpp
+    src/http/RegionRoutes.cpp
     src/infrastructure/SqlCatalogRepository.cpp
     src/infrastructure/SqlArticleRepository.cpp
+    src/infrastructure/SqlRegionRepository.cpp
 )
 
 add_executable(wfrest_server ${ECSHOP_SOURCES})
